@@ -13,6 +13,7 @@ import (
 	mongodb "github.com/sing3demons/oauth/kp/internal/database"
 	"github.com/sing3demons/oauth/kp/internal/discover"
 	"github.com/sing3demons/oauth/kp/internal/jwks"
+	"github.com/sing3demons/oauth/kp/pkg/kp"
 	"github.com/sing3demons/oauth/kp/pkg/logger"
 	"github.com/sing3demons/oauth/kp/pkg/mlog"
 )
@@ -22,7 +23,7 @@ func main() {
 	cfg := config.NewConfigManager()
 	cfg.LoadDefaults()
 
-	app := NewMicroservice(cfg)
+	app := kp.NewMicroservice(cfg)
 
 	app.Use(func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

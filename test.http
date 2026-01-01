@@ -1,4 +1,4 @@
-@uri=http://localhost:8080
+@uri=http://localhost:8081
 
 GET {{uri}}/.well-known/openid-configuration HTTP/1.1
 
