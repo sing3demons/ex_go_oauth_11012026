@@ -34,14 +34,14 @@ type ResponseWithLogger struct {
 	logger *logger.Logger
 }
 
-func NewResponseWithLogger(w http.ResponseWriter, r *http.Request, xSid string, masking ...logger.MaskingRule) *ResponseWithLogger {
+func NewResponseWithLogger(w http.ResponseWriter, r *http.Request, userCase, xSid string, masking ...logger.MaskingRule) *ResponseWithLogger {
 	if xSid == "" {
 		xSid = uuid.NewString()
 	}
 	rwl := &ResponseWithLogger{
 		w:      w,
 		r:      r,
-		logger: InitLog(r, xSid, masking...),
+		logger: InitLog(r, userCase, xSid, masking...),
 	}
 
 	return rwl
@@ -107,9 +107,10 @@ func (rwl *ResponseWithLogger) ResponseJsonError(status int, data any, err error
 	rwl.logger.FlushError(status, StatusMessage(status))
 }
 
-func InitLog(r *http.Request, xSid string, masking ...logger.MaskingRule) *logger.Logger {
+func InitLog(r *http.Request, userCase, xSid string, masking ...logger.MaskingRule) *logger.Logger {
 	l := L(r.Context())
 	l.SetSessionID(xSid)
+	l.SetUseCase(userCase)
 
 	headers := make(map[string]string)
 	for key, values := range r.Header {

@@ -1,11 +1,12 @@
 package discover
 
 import (
-	"encoding/json"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/sing3demons/oauth/kp/internal/config"
 	"github.com/sing3demons/oauth/kp/internal/jwks"
+	"github.com/sing3demons/oauth/kp/pkg/mlog"
 )
 
 type DiscoverHandler struct {
@@ -18,19 +19,20 @@ func NewDiscoverHandler(cfg *config.AppConfig, jwksService *jwks.JWTService) *Di
 }
 
 func (h *DiscoverHandler) OIDCHandler(w http.ResponseWriter, r *http.Request) {
-	data := h.cfg.OidcConfig
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
+	response := mlog.NewResponseWithLogger(w, r, "discover", uuid.NewString())
+	response.ResponseJson(http.StatusOK, h.cfg.OidcConfig)
 }
 
 func (h *DiscoverHandler) JwksHandler(w http.ResponseWriter, r *http.Request) {
 	// /.well-known/jwks.json
+	response := mlog.NewResponseWithLogger(w, r, "get_jwks", uuid.NewString())
 	jwks, err := h.jwksService.GetJWKS()
 	if err != nil {
-		http.Error(w, "failed to get JWKS", http.StatusInternalServerError)
+		response.ResponseJsonError(http.StatusInternalServerError, map[string]string{
+			"error": "server_error",
+		}, err)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(jwks)
+	response.ResponseJson(http.StatusOK, jwks)
 }

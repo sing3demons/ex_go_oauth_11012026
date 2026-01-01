@@ -25,6 +25,8 @@ const (
 	LevelInfo  LogLevel = "info"
 	LevelWarn  LogLevel = "warn"
 	LevelError LogLevel = "error"
+
+	ErrorSourceKey = "errorSource"
 )
 
 type LogType string
@@ -39,6 +41,7 @@ type DetailLog struct {
 	Level             LogLevel       `json:"level"`
 	Type              LogType        `json:"type"`
 	Service           string         `json:"service"`
+	UseCase           string         `json:"useCase,omitempty"`
 	Version           string         `json:"version"`
 	TransactionID     string         `json:"transactionId,omitempty"`
 	SessionID         string         `json:"sessionId,omitempty"`
@@ -55,12 +58,20 @@ type DetailLog struct {
 	Duration          int64          `json:"duration,omitempty"`
 	StatusCode        int            `json:"statusCode,omitempty"`
 	Error             string         `json:"error,omitempty"`
+	Stack             string         `json:"stack,omitempty"` //Use when error
 	ErrorCode         string         `json:"errorCode,omitempty"`
 	Metadata          map[string]any `json:"metadata,omitempty"`
 	Dependency        string         `json:"dependency,omitempty"`
 	ResponseTime      int64          `json:"responseTime,omitempty"`
 	ResultCode        string         `json:"resultCode,omitempty"`
 	ResultFlag        string         `json:"resultFlag,omitempty"`
+	AdditionalInfo    map[string]any `json:"additionalInfo,omitempty"`
+}
+
+type ErrorSource struct {
+	Node        string `json:"node,omitempty"`
+	Description string `json:"description,omitempty"`
+	Code        string `json:"code,omitempty"`
 }
 type DependencyMetadata struct {
 	Dependency   string `json:"dependency,omitempty"`
@@ -87,6 +98,7 @@ type Logger struct {
 	config        *configs.LoggerConfig
 	transactionID string
 	sessionID     string
+	UseCase       string
 	detailLogs    []DetailLog
 	startTime     time.Time
 	metadata      map[string]any
@@ -138,6 +150,12 @@ func (l *Logger) SetTransactionID(transactionID string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.transactionID = transactionID
+}
+
+func (l *Logger) SetUseCase(useCase string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.UseCase = useCase
 }
 
 func (l *Logger) write(log DetailLog) {
@@ -443,6 +461,7 @@ func (l *Logger) Detail(level LogLevel, actionInfo logAction.LoggerAction, data 
 		Message:           dataToString(maskedData),
 		TransactionID:     transactionID,
 		SessionID:         sessionID,
+		UseCase:           l.UseCase,
 	}
 
 	if len(l.metadata) > 0 {
@@ -548,6 +567,7 @@ func (l *Logger) Flush(statusCode int, message string) {
 		StatusCode:    statusCode,
 		Duration:      duration,
 		Metadata:      summaryMetadata,
+		UseCase:       l.UseCase,
 	}
 
 	l.write(log)
@@ -565,6 +585,7 @@ func (l *Logger) FlushError(statusCode int, message string) {
 		Message:       message,
 		TransactionID: l.transactionID,
 		SessionID:     l.sessionID,
+		UseCase:       l.UseCase,
 		StatusCode:    statusCode,
 		Duration:      duration,
 	}

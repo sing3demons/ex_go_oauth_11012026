@@ -105,7 +105,7 @@ func main() {
 
 	app.GET("/test", func(w http.ResponseWriter, r *http.Request) {
 		session := r.Header.Get("x-session-id")
-		response := mlog.NewResponseWithLogger(w, r, session)
+		response := mlog.NewResponseWithLogger(w, r, "test", session)
 		payload := map[string]interface{}{
 			"sub": "token_authentication_code",
 			"aud": "client-id",

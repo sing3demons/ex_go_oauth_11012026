@@ -17,7 +17,7 @@ func NewClientHandler(service *ClientService) *ClientHandler {
 }
 
 func (h *ClientHandler) CreateClientHandler(w http.ResponseWriter, r *http.Request) {
-	response := mlog.NewResponseWithLogger(w, r, uuid.NewString())
+	response := mlog.NewResponseWithLogger(w, r, "client", uuid.NewString())
 	body := OIDCClient{}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
