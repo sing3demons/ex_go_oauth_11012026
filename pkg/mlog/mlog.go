@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/sing3demons/oauth/kp/pkg/logAction"
 	"github.com/sing3demons/oauth/kp/pkg/logger"
 )
@@ -32,6 +34,9 @@ type ResponseWithLogger struct {
 }
 
 func NewResponseWithLogger(w http.ResponseWriter, r *http.Request, xSid string, masking ...logger.MaskingRule) *ResponseWithLogger {
+	if xSid == "" {
+		xSid = uuid.NewString()
+	}
 	rwl := &ResponseWithLogger{
 		w:      w,
 		r:      r,
@@ -41,11 +46,12 @@ func NewResponseWithLogger(w http.ResponseWriter, r *http.Request, xSid string, 
 	return rwl
 }
 func (rwl *ResponseWithLogger) ResponseJson(status int, data any, masking ...logger.MaskingRule) {
-	rwl.w.WriteHeader(status)
 	rwl.w.Header().Set("Content-Type", "application/json")
+	rwl.w.Header().Set("x-session-id", rwl.logger.SessionID())
+	rwl.w.WriteHeader(status)
 	json.NewEncoder(rwl.w).Encode(data)
 
-	rwl.logger.Info(logAction.OUTBOUND(rwl.r.Method+" -> "+rwl.r.URL.RawPath+" response"), map[string]any{
+	rwl.logger.Info(logAction.OUTBOUND("server response to client"), map[string]any{
 		"status":  status,
 		"headers": rwl.w.Header(),
 		"body":    data,
@@ -57,11 +63,11 @@ func (rwl *ResponseWithLogger) ResponseJson(status int, data any, masking ...log
 }
 
 func (rwl *ResponseWithLogger) ResponseJsonError(status int, data any, err error) {
-	rwl.w.WriteHeader(status)
 	rwl.w.Header().Set("Content-Type", "application/json")
+	rwl.w.WriteHeader(status)
 	json.NewEncoder(rwl.w).Encode(data)
 
-	rwl.logger.Info(logAction.OUTBOUND("client response"), map[string]any{
+	rwl.logger.Info(logAction.OUTBOUND("server response to client"), map[string]any{
 		"status":  status,
 		"headers": rwl.w.Header(),
 		"body":    data,
@@ -108,7 +114,7 @@ func InitLog(r *http.Request, xSid string, masking ...logger.MaskingRule) *logge
 		params[key] = r.PathValue(key)
 	}
 
-	l.Info(logAction.INBOUND(r.Method+" -> "+r.URL.RawPath), map[string]any{
+	l.Info(logAction.INBOUND(fmt.Sprintf("client %s %s server", r.Method, r.URL.String())), map[string]any{
 		"method":  r.Method,
 		"url":     r.URL.String(),
 		"headers": headers,

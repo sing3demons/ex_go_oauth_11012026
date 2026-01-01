@@ -9,11 +9,17 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"time"
 
+	"github.com/sing3demons/oauth/kp/internal/database"
 	mongodb "github.com/sing3demons/oauth/kp/internal/database"
+	"github.com/sing3demons/oauth/kp/pkg/logAction"
+	"github.com/sing3demons/oauth/kp/pkg/logger"
+	"github.com/sing3demons/oauth/kp/pkg/mlog"
+	"github.com/sing3demons/oauth/kp/pkg/query"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -56,11 +62,12 @@ func GetSupportedAlgorithms(alg []string) []JWTAlgorithm {
 
 type SigningKeyRepository struct {
 	collection *mongo.Collection
+	cache      database.IRedisClient
 	expiresAt  time.Duration
 	algorithms []string
 }
 
-func NewSigningKeyRepository(db *mongodb.Database) ISigningKeyRepository {
+func NewSigningKeyRepository(db *mongodb.Database, cache database.IRedisClient) ISigningKeyRepository {
 	alg := []string{}
 	for _, a := range GetSupportedAlgorithms([]string{"RS256", "ES256"}) {
 		alg = append(alg, string(a))
@@ -69,6 +76,7 @@ func NewSigningKeyRepository(db *mongodb.Database) ISigningKeyRepository {
 		collection: db.GetCollection(SigningKeyCollection),
 		expiresAt:  30 * 24 * time.Hour, // 30 days
 		algorithms: alg,
+		cache:      cache,
 	}
 
 	indexes := []mongo.IndexModel{
@@ -285,6 +293,18 @@ func (j *SigningKeyRepository) LoadActiveKeyByAlgorithm() ([]SigningKey, error) 
 }
 
 func (j *SigningKeyRepository) FindByAlgorithm(c context.Context, alg string) (SigningKey, error) {
+	cacheKey := "signing_key_" + alg
+	val, err := j.cache.Get(c, cacheKey)
+	if err == nil && val != "" {
+		var key SigningKey
+		err = json.Unmarshal([]byte(val), &key)
+		if err == nil {
+			return key, nil
+		}
+	}
+	start := time.Now()
+	log := mlog.L(c)
+
 	ctx, cancel := context.WithTimeout(c, 15*time.Second)
 	defer cancel()
 	filter := bson.M{
@@ -292,29 +312,79 @@ func (j *SigningKeyRepository) FindByAlgorithm(c context.Context, alg string) (S
 		"active":    true,
 		"expiresAt": bson.M{"$gt": time.Now()},
 	}
+
+	raw := query.GenerateFindQuery(j.collection.Name(), filter)
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency: j.collection.Name(),
+	}).Debug(logAction.DB_REQUEST(logAction.DB_READ, raw), filter)
+
 	var key SigningKey
-	err := j.collection.FindOne(ctx, filter).Decode(&key)
+	err = j.collection.FindOne(ctx, filter).Decode(&key)
+	elapsedMs := time.Since(start).Milliseconds()
+
+	result := map[string]any{}
 	if err != nil {
-		return SigningKey{}, err
+		result = map[string]any{
+			"error": err.Error(),
+		}
+		log.SetDependencyMetadata(logger.DependencyMetadata{
+			Dependency:   j.collection.Name(),
+			ResponseTime: elapsedMs,
+		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), result)
+	} else {
+		result = map[string]any{
+			"data": key,
+		}
+		log.SetDependencyMetadata(logger.DependencyMetadata{
+			Dependency:   j.collection.Name(),
+			ResponseTime: elapsedMs,
+		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), result)
+
+		// cache the key
+		keyJson, _ := json.Marshal(key)
+		exp := 5 * time.Minute
+		if key.ExpiresAt != nil {
+			ttl := time.Until(*key.ExpiresAt)
+			if ttl < exp {
+				exp = ttl
+			}
+		}
+		j.cache.Set(c, cacheKey, string(keyJson), exp)
 	}
-	// const currentTime = Date.now();
-	// const expire_signing_key_oidc_exp = currentTime + (parseInt(conf_mongo_signing_key_oidc_exp) * 1000);
-	return key, nil
+
+	return key, err
 }
 
-func (j *SigningKeyRepository) UpdateSigningKey(conf_mongo_signing_key_oidc_exp int, key SigningKey) error {
+func (j *SigningKeyRepository) UpdateSigningKey(c context.Context, conf_mongo_signing_key_oidc_exp int, key SigningKey) error {
 	currentTime := time.Now()
 	expire_signing_key_oidc_exp := currentTime.Add(time.Duration(conf_mongo_signing_key_oidc_exp) * time.Second)
 	if key.ExpiresAt == nil || key.ExpiresAt.Before(expire_signing_key_oidc_exp) {
+		log := mlog.L(c)
 		key.ExpiresAt = &expire_signing_key_oidc_exp
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(c, 15*time.Second)
 		defer cancel()
 		filter := bson.M{"kid": key.KID}
 		update := bson.M{"$set": bson.M{"expiresAt": key.ExpiresAt}}
-		_, err := j.collection.UpdateOne(ctx, filter, update)
+		raw := query.GenerateUpdateQuery(j.collection.Name(), filter, update)
+		log.SetDependencyMetadata(logger.DependencyMetadata{
+			Dependency: j.collection.Name(),
+		}).Debug(logAction.DB_REQUEST(logAction.DB_UPDATE, raw), map[string]any{
+			"filter": filter,
+			"update": update,
+		})
+
+		r, err := j.collection.UpdateOne(ctx, filter, update)
+		result := map[string]any{}
 		if err != nil {
-			return err
+			result["error"] = err.Error()
+		} else {
+			result["data"] = r
 		}
+		elapsedMs := time.Since(currentTime).Milliseconds()
+		log.SetDependencyMetadata(logger.DependencyMetadata{
+			Dependency:   j.collection.Name(),
+			ResponseTime: elapsedMs,
+		}).Debug(logAction.DB_RESPONSE(logAction.DB_UPDATE, "mongo response"), result)
 	}
 	return nil
 }

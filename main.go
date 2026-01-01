@@ -42,7 +42,13 @@ func main() {
 	}
 	defer db.Close()
 
-	jwksRepository := jwks.NewSigningKeyRepository(db)
+	redis, err := mongodb.NewRedisConfig(&cfg.RedisConfig)
+	if err != nil {
+		log.Fatalf("failed to connect to redis: %v", err)
+	}
+	defer redis.Close()
+
+	jwksRepository := jwks.NewSigningKeyRepository(db, redis)
 	jwksRepository.LoadActiveKeyByAlgorithm()
 	jwksService := jwks.NewJWTService(cfg, jwksRepository)
 
@@ -54,14 +60,15 @@ func main() {
 	app.GET("/clients/{id}", clientHandler.GetClientHandler)
 
 	app.GET("/test", func(w http.ResponseWriter, r *http.Request) {
-		response := mlog.NewResponseWithLogger(w, r, uuid.NewString())
+		session := r.Header.Get("x-session-id")
+		response := mlog.NewResponseWithLogger(w, r, session)
 		payload := map[string]interface{}{
 			"sub": "token_authentication_code",
 			"aud": "client-id",
 			"uid": "user-12345",
 			"exp": time.Now().Add(1 * time.Hour).Unix(),
 		}
-		token, err := jwksService.GenerateJwtTokenWithAlg(context.Background(), payload, "RS256")
+		token, err := jwksService.GenerateJwtTokenWithAlg(r.Context(), payload, "RS256")
 		if err != nil {
 			http.Error(w, "failed to generate token", http.StatusInternalServerError)
 			return

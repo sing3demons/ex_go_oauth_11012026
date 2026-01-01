@@ -12,7 +12,8 @@
             "program": "${workspaceFolder}/main.go",
             "env": {
                 "MONGO_URI": "mongodb://localhost:27017",
-                "PORT": "8081"
+                "PORT": "8081",
+                "REDIS_HOST": "localhost:6379"
             },
         }
     ]

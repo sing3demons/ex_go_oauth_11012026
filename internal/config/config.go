@@ -13,12 +13,19 @@ type AppConfig struct {
 	BaseURL      string
 	OidcConfig   OpenidConfiguration
 	LoggerConfig LoggerConfig
+	RedisConfig  RedisConfig
 }
 
 type LogOutputConfig struct {
 	Path    string
 	Console bool
 	File    bool
+}
+
+type RedisConfig struct {
+	Addr     string `json:"addr"`
+	Password string `json:"password"`
+	DB       int    `json:"db"`
 }
 
 // RotationConfig defines log rotation settings
@@ -65,6 +72,10 @@ func NewConfigManager() *AppConfig {
 	if Port == "" {
 		Port = "8080"
 	}
+	redisHost := os.Getenv("REDIS_HOST")
+	redisPassword := os.Getenv("REDIS_PASSWORD")
+	var redisDB int = 0
+
 	cm := &ConfigManager{
 		data: &AppConfig{
 			Port:        Port,
@@ -82,6 +93,14 @@ func NewConfigManager() *AppConfig {
 				},
 			},
 		},
+	}
+
+	if redisHost != "" {
+		cm.data.RedisConfig = RedisConfig{
+			Addr:     redisHost,
+			Password: redisPassword,
+			DB:       redisDB,
+		}
 	}
 
 	return cm.data

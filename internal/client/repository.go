@@ -17,7 +17,6 @@ import (
 
 type ClientRepository struct {
 	collection *mongo.Collection
-	name       string
 }
 
 type IClientRepository interface {
@@ -27,7 +26,6 @@ type IClientRepository interface {
 
 func NewClientRepository(db *mongodb.Database) IClientRepository {
 	cr := &ClientRepository{
-		name:       "clients",
 		collection: db.GetCollection("clients"),
 	}
 	indexes := []mongo.IndexModel{
@@ -58,9 +56,9 @@ func (r *ClientRepository) InsertClient(c context.Context, data *OIDCClient) err
 	data.CreatedAt = time.Now()
 	data.IDTokenAlgOrDefault()
 	data.DefaultsTTL()
-	raw := query.GenerateInsertQuery(r.name, data)
+	raw := query.GenerateInsertQuery(r.collection.Name(), data)
 	log.SetDependencyMetadata(logger.DependencyMetadata{
-		Dependency: r.name,
+		Dependency: r.collection.Name(),
 	}).Debug(logAction.DB_REQUEST(logAction.DB_CREATE, raw), map[string]any{
 		"body": data,
 	})
@@ -75,9 +73,9 @@ func (r *ClientRepository) InsertClient(c context.Context, data *OIDCClient) err
 		resp["data"] = result
 	}
 	log.SetDependencyMetadata(logger.DependencyMetadata{
-		Dependency:   r.name,
+		Dependency:   r.collection.Name(),
 		ResponseTime: elapsedMs,
-	}).Debug(logAction.DB_RESPONSE(logAction.DB_CREATE, raw), resp)
+	}).Debug(logAction.DB_RESPONSE(logAction.DB_CREATE, "mongo response"), resp)
 
 	return err
 }
@@ -91,10 +89,10 @@ func (r *ClientRepository) FindClientByID(c context.Context, clientID string) (O
 	ctx, cancel := context.WithTimeout(c, 15*time.Second)
 	defer cancel()
 
-	raw := query.GenerateFindQuery(r.name, filter)
+	raw := query.GenerateFindQuery(r.collection.Name(), filter)
 	log := mlog.L(c)
 	log.SetDependencyMetadata(logger.DependencyMetadata{
-		Dependency: r.name,
+		Dependency: r.collection.Name(),
 	}).Debug(logAction.DB_REQUEST(logAction.DB_READ, raw), filter)
 
 	err := r.collection.FindOne(ctx, filter).Decode(&client)
@@ -106,9 +104,9 @@ func (r *ClientRepository) FindClientByID(c context.Context, clientID string) (O
 		result["data"] = client
 	}
 	log.SetDependencyMetadata(logger.DependencyMetadata{
-		Dependency:   r.name,
+		Dependency:   r.collection.Name(),
 		ResponseTime: elapsedMs,
-	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, raw), result)
+	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), result)
 
 	return client, err
 }

@@ -609,7 +609,7 @@ func (l *Logger) AddMetadata(key string, value any) {
 	l.metadata[key] = value
 }
 
-func (l *Logger) SetDependencyMetadata(metadata DependencyMetadata)  *Logger {
+func (l *Logger) SetDependencyMetadata(metadata DependencyMetadata) *Logger {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if metadata.Dependency != "" {
@@ -649,6 +649,18 @@ func (l *Logger) AddSuccess(key string, value any) {
 
 	// Convert single value to array with both old and new values
 	l.metadata[key] = []any{existing, value}
+}
+
+func (l *Logger) SessionID() string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.sessionID
+}
+
+func (l *Logger) TransactionID() string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.transactionID
 }
 
 func dataToString(data any) string {
