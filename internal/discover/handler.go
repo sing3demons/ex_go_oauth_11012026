@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/sing3demons/oauth/kp/config"
+	"github.com/sing3demons/oauth/kp/internal/config"
 	"github.com/sing3demons/oauth/kp/internal/jwks"
 )
 

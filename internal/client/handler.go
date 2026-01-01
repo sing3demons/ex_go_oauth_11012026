@@ -3,6 +3,9 @@ package client
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/google/uuid"
+	"github.com/sing3demons/oauth/kp/pkg/mlog"
 )
 
 type ClientHandler struct {
@@ -14,26 +17,27 @@ func NewClientHandler(service *ClientService) *ClientHandler {
 }
 
 func (h *ClientHandler) CreateClientHandler(w http.ResponseWriter, r *http.Request) {
+	response := mlog.NewResponseWithLogger(w, r, uuid.NewString())
 	body := OIDCClient{}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		response.ResponseJsonError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
 		return
 	}
 
 	body.GenClientSecret()
 
 	if err := body.ValidateClientType(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		response.ResponseJsonError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
 		return
 	}
 
 	if err := h.service.CreateClient(r.Context(), &body); err != nil {
-		http.Error(w, "failed to create client", http.StatusInternalServerError)
+		response.ResponseJsonError(http.StatusInternalServerError, map[string]string{"error": "internal_server_error"}, err)
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]any{
+	response.ResponseJson(http.StatusOK, map[string]any{
 		"message": "success",
 		"data":    body,
 	})

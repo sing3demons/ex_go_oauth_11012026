@@ -6,6 +6,10 @@ import (
 
 	"github.com/google/uuid"
 	mongodb "github.com/sing3demons/oauth/kp/internal/database"
+	"github.com/sing3demons/oauth/kp/pkg/logAction"
+	"github.com/sing3demons/oauth/kp/pkg/logger"
+	"github.com/sing3demons/oauth/kp/pkg/mlog"
+	"github.com/sing3demons/oauth/kp/pkg/query"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -13,6 +17,7 @@ import (
 
 type ClientRepository struct {
 	collection *mongo.Collection
+	name       string
 }
 
 type IClientRepository interface {
@@ -22,6 +27,7 @@ type IClientRepository interface {
 
 func NewClientRepository(db *mongodb.Database) IClientRepository {
 	cr := &ClientRepository{
+		name:       "clients",
 		collection: db.GetCollection("clients"),
 	}
 	indexes := []mongo.IndexModel{
@@ -42,6 +48,8 @@ func NewClientRepository(db *mongodb.Database) IClientRepository {
 }
 
 func (r *ClientRepository) InsertClient(c context.Context, data *OIDCClient) error {
+	start := time.Now()
+	log := mlog.L(c)
 	ctx, cancel := context.WithTimeout(c, 15*time.Second)
 	defer cancel()
 	if data.ClientID == "" {
@@ -50,11 +58,32 @@ func (r *ClientRepository) InsertClient(c context.Context, data *OIDCClient) err
 	data.CreatedAt = time.Now()
 	data.IDTokenAlgOrDefault()
 	data.DefaultsTTL()
-	_, err := r.collection.InsertOne(ctx, data)
+	raw := query.GenerateInsertQuery(r.name, data)
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency: r.name,
+	}).Debug(logAction.DB_REQUEST(logAction.DB_CREATE, raw), map[string]any{
+		"body": data,
+	})
+	result, err := r.collection.InsertOne(ctx, data)
+	elapsedMs := time.Since(start).Milliseconds()
+
+	resp := map[string]any{}
+
+	if err != nil {
+		resp["error"] = err.Error()
+	} else {
+		resp["data"] = result
+	}
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency:   r.name,
+		ResponseTime: elapsedMs,
+	}).Debug(logAction.DB_RESPONSE(logAction.DB_CREATE, raw), resp)
+
 	return err
 }
 
 func (r *ClientRepository) FindClientByID(c context.Context, clientID string) (OIDCClient, error) {
+	start := time.Now()
 	filter := bson.M{
 		"client_id": clientID,
 	}
@@ -62,9 +91,24 @@ func (r *ClientRepository) FindClientByID(c context.Context, clientID string) (O
 	ctx, cancel := context.WithTimeout(c, 15*time.Second)
 	defer cancel()
 
-	if err := r.collection.FindOne(ctx, filter).Decode(&client); err != nil {
-		return OIDCClient{}, err
-	}
+	raw := query.GenerateFindQuery(r.name, filter)
+	log := mlog.L(c)
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency: r.name,
+	}).Debug(logAction.DB_REQUEST(logAction.DB_READ, raw), filter)
 
-	return client, nil
+	err := r.collection.FindOne(ctx, filter).Decode(&client)
+	elapsedMs := time.Since(start).Milliseconds()
+	result := map[string]any{}
+	if err != nil {
+		result["error"] = err.Error()
+	} else {
+		result["data"] = client
+	}
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency:   r.name,
+		ResponseTime: elapsedMs,
+	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, raw), result)
+
+	return client, err
 }

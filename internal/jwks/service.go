@@ -15,7 +15,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/sing3demons/oauth/kp/config"
+	"github.com/sing3demons/oauth/kp/internal/config"
 )
 
 type JWTService struct {

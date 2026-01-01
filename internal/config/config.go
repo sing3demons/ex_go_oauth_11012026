@@ -8,10 +8,31 @@ import (
 )
 
 type AppConfig struct {
-	Port        string
-	DatabaseURL string
-	BaseURL     string
-	OidcConfig  OpenidConfiguration
+	Port         string
+	DatabaseURL  string
+	BaseURL      string
+	OidcConfig   OpenidConfiguration
+	LoggerConfig LoggerConfig
+}
+
+type LogOutputConfig struct {
+	Path    string
+	Console bool
+	File    bool
+}
+
+// RotationConfig defines log rotation settings
+type RotationConfig struct {
+	MaxSize    int64 // Maximum size in bytes before rotation (default: 100MB)
+	MaxAge     int   // Maximum number of days to retain old logs (default: 30)
+	MaxBackups int   // Maximum number of backup files to keep (default: 10)
+	Compress   bool  // Whether to compress rotated files (default: true)
+}
+
+type LoggerConfig struct {
+	Summary  LogOutputConfig
+	Detail   LogOutputConfig
+	Rotation RotationConfig
 }
 
 type OpenidConfiguration struct {
@@ -50,6 +71,16 @@ func NewConfigManager() *AppConfig {
 			BaseURL:     baseURL,
 			DatabaseURL: databaseURL,
 			OidcConfig:  OpenidConfiguration{},
+			LoggerConfig: LoggerConfig{
+				Summary: LogOutputConfig{Path: "./logs/summary/", Console: true, File: true},
+				Detail:  LogOutputConfig{Path: "./logs/detail/", Console: true, File: true},
+				Rotation: RotationConfig{
+					MaxSize:    50 * 1024 * 1024, // 50MB
+					MaxAge:     7,                // 7 days
+					MaxBackups: 5,
+					Compress:   true,
+				},
+			},
 		},
 	}
 
@@ -203,4 +234,30 @@ func (o *OpenidConfiguration) ValidateTokenEndpointAuthMethodsSupported(method s
 		}
 	}
 	return false
+}
+
+// DefaultRotationConfig returns default rotation settings
+func DefaultRotationConfig() RotationConfig {
+	return RotationConfig{
+		MaxSize:    100 * 1024 * 1024, // 100MB
+		MaxAge:     30,                // 30 days
+		MaxBackups: 10,
+		Compress:   true,
+	}
+}
+
+func DefaultConfig() *LoggerConfig {
+	return &LoggerConfig{
+		Summary: LogOutputConfig{
+			Path:    "./logs/summary/",
+			Console: true,
+			File:    false,
+		},
+		Detail: LogOutputConfig{
+			Path:    "./logs/detail/",
+			Console: true,
+			File:    false,
+		},
+		Rotation: DefaultRotationConfig(),
+	}
 }

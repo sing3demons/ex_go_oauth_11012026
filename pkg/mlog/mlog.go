@@ -2,20 +2,22 @@ package mlog
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/sing3demons/oauth/kp/pkg/logAction"
 	"github.com/sing3demons/oauth/kp/pkg/logger"
 )
 
-func L(r *http.Request) *logger.Logger {
-	if r == nil || r.Context() == nil {
+func L(ctx context.Context) *logger.Logger {
+	if ctx == nil {
 		return logger.NewLogger("", "")
 	}
-	l, ok := r.Context().Value("logger").(*logger.Logger)
+	l, ok := ctx.Value("logger").(*logger.Logger)
 	if !ok || l == nil {
 		return logger.NewLogger("", "")
 	}
@@ -54,8 +56,22 @@ func (rwl *ResponseWithLogger) ResponseJson(status int, data any, masking ...log
 	rwl.logger.Flush(status, msg)
 }
 
+func (rwl *ResponseWithLogger) ResponseJsonError(status int, data any, err error) {
+	rwl.w.WriteHeader(status)
+	rwl.w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(rwl.w).Encode(data)
+
+	rwl.logger.Info(logAction.OUTBOUND("client response"), map[string]any{
+		"status":  status,
+		"headers": rwl.w.Header(),
+		"body":    data,
+	})
+
+	rwl.logger.FlushError(status, err.Error())
+}
+
 func InitLog(r *http.Request, xSid string, masking ...logger.MaskingRule) *logger.Logger {
-	l := L(r)
+	l := L(r.Context())
 	l.SetSessionID(xSid)
 
 	headers := make(map[string]string)
@@ -78,6 +94,19 @@ func InitLog(r *http.Request, xSid string, masking ...logger.MaskingRule) *logge
 		r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 		json.Unmarshal(bodyBytes, &body)
 	}
+	params := make(map[string]string)
+
+	// pattern := r.PathPattern() // "/users/{id}/orders/{orderId}"
+	// Since http.Request does not have PathPattern, set pattern to r.URL.Path or another available value
+	pattern := r.URL.Path
+	re := regexp.MustCompile(`\{(\w+)\}`)
+	matches := re.FindAllStringSubmatch(pattern, -1)
+
+	// PathValue is also not available on *http.Request, so this section is commented out or needs to be replaced with custom logic if needed
+	for _, m := range matches {
+		key := m[1]
+		params[key] = r.PathValue(key)
+	}
 
 	l.Info(logAction.INBOUND(r.Method+" -> "+r.URL.RawPath), map[string]any{
 		"method":  r.Method,
@@ -85,6 +114,8 @@ func InitLog(r *http.Request, xSid string, masking ...logger.MaskingRule) *logge
 		"headers": headers,
 		"query":   r.URL.Query(),
 		"body":    body,
+		"params":  params,
+		"remote":  r.RemoteAddr,
 	}, masking...)
 	return l
 }
