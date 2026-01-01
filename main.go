@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +17,7 @@ import (
 	"github.com/sing3demons/oauth/kp/internal/discover"
 	"github.com/sing3demons/oauth/kp/internal/jwks"
 	"github.com/sing3demons/oauth/kp/pkg/kp"
+	"github.com/sing3demons/oauth/kp/pkg/logAction"
 	"github.com/sing3demons/oauth/kp/pkg/logger"
 	"github.com/sing3demons/oauth/kp/pkg/mlog"
 )
@@ -27,11 +31,51 @@ func main() {
 
 	app.Use(func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+
 			pCtx := r.Context()
 			csLog := logger.NewLoggerWithConfig("auth-server", "1.0.0", &cfg.LoggerConfig)
 			csLog.StartTransaction(uuid.NewString(), "")
 			pCtx = context.WithValue(pCtx, "logger", csLog)
 			r = r.WithContext(pCtx)
+
+			defer func() {
+				if rec := recover(); rec != nil {
+					// default
+					status := http.StatusInternalServerError
+					msg := "internal_server_error"
+
+					// convert panic → error
+					var err error
+					switch v := rec.(type) {
+					case error:
+						err = v
+					default:
+						err = fmt.Errorf("%v", v)
+					}
+
+					// log panic
+					csLog.Error(
+						logAction.EXCEPTION("panic recovered"),
+						map[string]any{
+							"method":   r.Method,
+							"path":     r.URL.Path,
+							"panic":    err.Error(),
+							"duration": time.Since(start).Milliseconds(),
+							"stack":    string(debug.Stack()),
+						},
+					)
+
+					// response
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(status)
+					json.NewEncoder(w).Encode(map[string]any{
+						"error": msg,
+					})
+
+					csLog.FlushError(status, msg)
+				}
+			}()
 			h.ServeHTTP(w, r)
 		})
 	})

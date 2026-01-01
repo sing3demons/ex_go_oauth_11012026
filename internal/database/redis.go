@@ -26,9 +26,10 @@ type IRedisClient interface {
 }
 
 func NewRedisConfig(cfg *config.RedisConfig) (IRedisClient, error) {
-	if cfg == nil || cfg.Addr == "" {
-		return nil, errors.New("redis config is nil")
-	}
+	// if cfg == nil || cfg.Addr == "" {
+	// 	return nil, errors.New("redis config is nil")
+	// }
+	fmt.Println("connecting to redis:", cfg.Addr)
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
@@ -91,24 +92,42 @@ func (c *RedisClient) Get(ctx context.Context, key string) (string, error) {
 			"data": val,
 		}
 	}
+	maskingRules := []logger.MaskingRule{
+		{
+			Field: "data.PrivateKey", Type: logger.MaskingTypeFull,
+		},
+		{
+			Field: "data.PublicKey", Type: logger.MaskingTypeFull,
+		},
+	}
 
 	log.SetDependencyMetadata(logger.DependencyMetadata{
 		Dependency:   "redis",
 		ResponseTime: elapsedMs,
-	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "redis GET"), result)
+	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "redis GET"), result, maskingRules...)
 	return val, err
 }
 
 func (c *RedisClient) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error {
 	log := mlog.L(ctx)
 	start := time.Now()
+
+	maskingRules := []logger.MaskingRule{
+		{
+			Field: "value.PrivateKey", Type: logger.MaskingTypeFull,
+		},
+		{
+			Field: "value.PublicKey", Type: logger.MaskingTypeFull,
+		},
+	}
+
 	log.SetDependencyMetadata(logger.DependencyMetadata{
 		Dependency: "redis",
 	}).Debug(logAction.DB_REQUEST(logAction.DB_CREATE, "redis SET"), map[string]any{
 		"key":        key,
 		"value":      value,
 		"expiration": expiration,
-	})
+	}, maskingRules...)
 
 	err := c.client.Set(ctx, key, value, expiration).Err()
 	elapsedMs := time.Since(start).Milliseconds()

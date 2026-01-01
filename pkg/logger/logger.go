@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -535,9 +536,7 @@ func (l *Logger) Flush(statusCode int, message string) {
 	sessionID := l.sessionID
 	// Copy metadata to avoid race
 	summaryMetadata := make(map[string]any, len(l.metadata))
-	for k, v := range l.metadata {
-		summaryMetadata[k] = v
-	}
+	maps.Copy(summaryMetadata, l.metadata)
 	l.mu.Unlock()
 
 	log := DetailLog{
@@ -559,24 +558,33 @@ func (l *Logger) Flush(statusCode int, message string) {
 func (l *Logger) FlushError(statusCode int, message string) {
 	l.mu.Lock()
 	duration := time.Since(l.startTime).Milliseconds()
-	transactionID := l.transactionID
-	sessionID := l.sessionID
-	// Copy metadata to avoid race
-	summaryMetadata := make(map[string]any, len(l.metadata))
-	for k, v := range l.metadata {
-		summaryMetadata[k] = v
-	}
-	l.mu.Unlock()
 
 	log := DetailLog{
 		Level:         LevelError,
 		Type:          TypeSummary,
 		Message:       message,
-		TransactionID: transactionID,
-		SessionID:     sessionID,
+		TransactionID: l.transactionID,
+		SessionID:     l.sessionID,
 		StatusCode:    statusCode,
 		Duration:      duration,
-		Metadata:      summaryMetadata,
+	}
+	// Copy metadata to avoid race
+	summaryMetadata := make(map[string]any, len(l.metadata))
+	for k, v := range l.metadata {
+		if k == "resultCode" || k == "resultFlag" || k == "dependency" || k == "responseTime" {
+			switch k {
+			case "resultCode":
+				log.ResultCode = v.(string)
+			case "resultFlag":
+				log.ResultFlag = v.(string)
+			}
+			continue
+		}
+		summaryMetadata[k] = v
+	}
+	l.mu.Unlock()
+	if len(summaryMetadata) > 0 {
+		log.Metadata = summaryMetadata
 	}
 
 	l.write(log)

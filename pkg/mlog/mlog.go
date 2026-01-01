@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -45,6 +46,15 @@ func NewResponseWithLogger(w http.ResponseWriter, r *http.Request, xSid string, 
 
 	return rwl
 }
+
+func StatusMessage(status int) string {
+	msg := http.StatusText(status)
+	if msg == "" {
+		return "unknown_status"
+	}
+	return strings.ToLower(strings.ReplaceAll(msg, " ", "_"))
+}
+
 func (rwl *ResponseWithLogger) ResponseJson(status int, data any, masking ...logger.MaskingRule) {
 	rwl.w.Header().Set("Content-Type", "application/json")
 	rwl.w.Header().Set("x-session-id", rwl.logger.SessionID())
@@ -57,9 +67,28 @@ func (rwl *ResponseWithLogger) ResponseJson(status int, data any, masking ...log
 		"body":    data,
 	}, masking...)
 
-	msg := http.StatusText(status)
+	rwl.logger.Flush(status, StatusMessage(status))
+}
 
-	rwl.logger.Flush(status, msg)
+func (rwl *ResponseWithLogger) Redirect(urlStr string) {
+	fullUrl := urlStr
+	location, err := url.Parse(urlStr)
+	if err == nil {
+		q := location.Query()
+		q.Add("sid", rwl.logger.SessionID())
+		location.RawQuery = q.Encode()
+		fullUrl = location.String()
+	}
+	http.Redirect(rwl.w, rwl.r, fullUrl, http.StatusFound)
+
+	rwl.logger.Info(logAction.OUTBOUND("server redirect to client"), map[string]any{
+		"status":  http.StatusFound,
+		"headers": rwl.w.Header(),
+		"url":     fullUrl,
+	})
+
+	msg := fmt.Sprintf("redirect to %s", urlStr)
+	rwl.logger.Flush(http.StatusFound, msg)
 }
 
 func (rwl *ResponseWithLogger) ResponseJsonError(status int, data any, err error) {
@@ -73,7 +102,9 @@ func (rwl *ResponseWithLogger) ResponseJsonError(status int, data any, err error
 		"body":    data,
 	})
 
-	rwl.logger.FlushError(status, err.Error())
+	rwl.logger.AddMetadata("ErrorCode", err.Error())
+
+	rwl.logger.FlushError(status, StatusMessage(status))
 }
 
 func InitLog(r *http.Request, xSid string, masking ...logger.MaskingRule) *logger.Logger {

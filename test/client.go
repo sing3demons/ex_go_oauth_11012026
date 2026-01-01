@@ -3,34 +3,45 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"sync"
 )
 
 func main() {
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
-	test()
+	fullUrl := ""
+	location, err := url.Parse("http://localhost:8081/?param=value")
+	if err == nil {
+		q := location.Query()
+		q.Add("sid", "example-session-id")
+		location.RawQuery = q.Encode()
+		fullUrl = location.String()
+	}
+
+	fmt.Println("Redirecting to:", fullUrl)
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
+	// test()
 }
 
 func test() {

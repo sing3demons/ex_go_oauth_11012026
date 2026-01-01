@@ -335,13 +335,21 @@ func (j *SigningKeyRepository) FindByAlgorithm(c context.Context, alg string) (S
 		result = map[string]any{
 			"data": key,
 		}
+
+		maskingRules := []logger.MaskingRule{
+			{
+				Field: "data.PrivateKey", Type: logger.MaskingTypeFull,
+			},
+			{
+				Field: "data.PublicKey", Type: logger.MaskingTypeFull,
+			},
+		}
 		log.SetDependencyMetadata(logger.DependencyMetadata{
 			Dependency:   j.collection.Name(),
 			ResponseTime: elapsedMs,
-		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), result)
+		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), result, maskingRules...)
 
 		// cache the key
-		keyJson, _ := json.Marshal(key)
 		exp := 5 * time.Minute
 		if key.ExpiresAt != nil {
 			ttl := time.Until(*key.ExpiresAt)
@@ -349,7 +357,7 @@ func (j *SigningKeyRepository) FindByAlgorithm(c context.Context, alg string) (S
 				exp = ttl
 			}
 		}
-		j.cache.Set(c, cacheKey, string(keyJson), exp)
+		j.cache.Set(c, cacheKey, key, exp)
 	}
 
 	return key, err
