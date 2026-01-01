@@ -350,7 +350,7 @@ func (j *SigningKeyRepository) FindByAlgorithm(c context.Context, alg string) (S
 		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), result, maskingRules...)
 
 		// cache the key
-		exp := 5 * time.Minute
+		exp := 15 * time.Minute
 		if key.ExpiresAt != nil {
 			ttl := time.Until(*key.ExpiresAt)
 			if ttl < exp {

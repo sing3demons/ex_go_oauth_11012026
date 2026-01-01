@@ -18,10 +18,33 @@ services:
     ports:
       - "6379:6379"
     command: redis-server --appendonly yes
-    # volumes:
-    #   - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./redis_data:/data
     networks:
       - oauth-network
+
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: redis-insight
+    restart: unless-stopped
+    ports:
+      - "5540:5540"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - oauth-network
+    environment:
+      - RI_REDIS_ALIAS=redis:6379
+      - RI_REDIS_HOST=redis
+      - RI_REDIS_PORT=6379
+    # volumes:
+    #   - redis-insight-data:/data
 networks:
   oauth-network:
     driver: bridge

@@ -2,8 +2,10 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -66,8 +68,20 @@ func (c *RedisClient) Get(ctx context.Context, key string) (string, error) {
 	log := mlog.L(ctx)
 	start := time.Now()
 
+	dependency := "redis"
+	maskingRules := []logger.MaskingRule{}
+	if strings.HasPrefix(key, "signing_key_") {
+		maskingRules = append(maskingRules, logger.MaskingRule{
+			Field: "data.PrivateKey", Type: logger.MaskingTypeFull,
+		})
+		maskingRules = append(maskingRules, logger.MaskingRule{
+			Field: "data.PublicKey", Type: logger.MaskingTypeFull,
+		})
+		dependency = strings.Join([]string{dependency, "get_signing_key"}, "_")
+	}
+
 	log.SetDependencyMetadata(logger.DependencyMetadata{
-		Dependency: "redis",
+		Dependency: dependency,
 	}).Debug(logAction.DB_REQUEST(logAction.DB_READ, "redis GET"), map[string]any{
 		"key": key,
 	})
@@ -92,33 +106,25 @@ func (c *RedisClient) Get(ctx context.Context, key string) (string, error) {
 			"data": val,
 		}
 	}
-	maskingRules := []logger.MaskingRule{
-		{
-			Field: "data.PrivateKey", Type: logger.MaskingTypeFull,
-		},
-		{
-			Field: "data.PublicKey", Type: logger.MaskingTypeFull,
-		},
-	}
 
 	log.SetDependencyMetadata(logger.DependencyMetadata{
-		Dependency:   "redis",
+		Dependency:   dependency,
 		ResponseTime: elapsedMs,
 	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "redis GET"), result, maskingRules...)
 	return val, err
 }
 
-func (c *RedisClient) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error {
+func (c *RedisClient) Set(ctx context.Context, key string, value any, expiration time.Duration) error {
 	log := mlog.L(ctx)
 	start := time.Now()
-
-	maskingRules := []logger.MaskingRule{
-		{
+	maskingRules := []logger.MaskingRule{}
+	if strings.HasPrefix(key, "signing_key_") {
+		maskingRules = append(maskingRules, logger.MaskingRule{
 			Field: "value.PrivateKey", Type: logger.MaskingTypeFull,
-		},
-		{
+		})
+		maskingRules = append(maskingRules, logger.MaskingRule{
 			Field: "value.PublicKey", Type: logger.MaskingTypeFull,
-		},
+		})
 	}
 
 	log.SetDependencyMetadata(logger.DependencyMetadata{
@@ -129,7 +135,10 @@ func (c *RedisClient) Set(ctx context.Context, key string, value interface{}, ex
 		"expiration": expiration,
 	}, maskingRules...)
 
-	err := c.client.Set(ctx, key, value, expiration).Err()
+	b, err := json.Marshal(value)
+	if err == nil {
+		err = c.client.Set(ctx, key, b, expiration).Err()
+	}
 	elapsedMs := time.Since(start).Milliseconds()
 
 	result := map[string]any{}

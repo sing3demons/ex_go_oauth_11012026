@@ -96,7 +96,7 @@ func main() {
 	jwksRepository.LoadActiveKeyByAlgorithm()
 	jwksService := jwks.NewJWTService(cfg, jwksRepository)
 
-	clientRepository := client.NewClientRepository(db)
+	clientRepository := client.NewClientRepository(db, redis)
 	clientService := client.NewClientService(clientRepository)
 	clientHandler := client.NewClientHandler(clientService)
 
