@@ -1,0 +1,22 @@
+@uri=http://localhost:8080
+
+GET {{uri}}/.well-known/openid-configuration HTTP/1.1
+
+###
+GET {{uri}}/.well-known/jwks.json HTTP/1.1
+
+###
+GET {{uri}}/test HTTP/1.1
+
+###
+POST {{uri}}/clients HTTP/1.1
+Content-Type: application/json
+
+{
+    "client_name": "Test Client",
+    "redirect_uris": ["http://localhost/callback"],
+    "grant_types": ["authorization_code"],
+    "response_types": ["code"],
+    "client_type": "confidential",
+    "scopes": ["openid", "profile", "email"]
+}
