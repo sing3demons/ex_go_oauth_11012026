@@ -1,7 +1,7 @@
 package client
 
 import (
-	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/sing3demons/oauth/kp/pkg/kp"
@@ -43,14 +43,14 @@ func (h *ClientHandler) CreateClientHandler(ctx *kp.Ctx) {
 	})
 }
 
-func (h *ClientHandler) GetClientHandler(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	client, err := h.service.GetClientByID(r.Context(), id)
+func (h *ClientHandler) GetClientHandler(ctx *kp.Ctx) {
+	ctx.L("get_client")
+	id := ctx.Params("id")
+	fmt.Println("Getting client with ID:", id)
+	client, err := h.service.GetClientByID(ctx.Context(), id)
 	if err != nil {
-		http.Error(w, "client not found", http.StatusNotFound)
+		ctx.JSONError(http.StatusNotFound, "client_not_found", err)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(client)
+	ctx.JSON(http.StatusOK, client)
 }

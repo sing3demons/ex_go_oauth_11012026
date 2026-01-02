@@ -8,16 +8,16 @@ import (
 )
 
 type OIDCClient struct {
-	ClientID string `json:"client_id"`
+	ClientID string `json:"client_id" bson:"client_id"`
 
-	ClientName string `json:"client_name"`
-	ClientType string `json:"client_type"`
+	ClientName string `json:"client_name" bson:"app_name"`
+	ClientType string `json:"client_type" bson:"client_type"`
 
-	Status string `json:"status,omitempty"`
+	Status string `json:"status,omitempty" bson:"status,omitempty"`
 
-	RedirectUris []string `json:"redirect_uris"`
-	GrantTypes   []string `json:"grant_types"`
-	Scopes       []string `json:"scopes,omitempty"`
+	RedirectUris []string `json:"redirect_uris" bson:"redirect_uris"`
+	GrantTypes   []string `json:"grant_types" bson:"grant_types"`
+	Scopes       []string `json:"scopes,omitempty" bson:"scopes,omitempty"`
 
 	ClientSecret            string    `bson:"client_secret" json:"client_secret,omitempty"`
 	TokenEndpointAuthMethod string    `bson:"token_endpoint_auth_method" json:"token_endpoint_auth_method,omitempty"`

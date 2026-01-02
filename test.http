@@ -20,3 +20,8 @@ Content-Type: application/json
     "client_type": "confidential",
     "scopes": ["openid", "profile", "email"]
 }
+
+###
+GET {{uri}}/clients/cd4e7670-5e96-4a3f-addb-51fa43db86fc HTTP/1.1
+
+###
