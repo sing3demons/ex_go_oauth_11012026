@@ -8,6 +8,9 @@ import (
 )
 
 type AppConfig struct {
+	ServiceName string
+	Version     string
+
 	Port         string
 	DatabaseURL  string
 	BaseURL      string
@@ -72,6 +75,8 @@ func NewConfigManager() *AppConfig {
 	if Port == "" {
 		Port = "8080"
 	}
+	serviceName := os.Getenv("SERVICE_NAME")
+	version := os.Getenv("VERSION")
 	redisHost := os.Getenv("REDIS_HOST")
 	redisPassword := os.Getenv("REDIS_PASSWORD")
 	var redisDB int = 0
@@ -79,6 +84,8 @@ func NewConfigManager() *AppConfig {
 	cm := &ConfigManager{
 		data: &AppConfig{
 			Port:        Port,
+			ServiceName: serviceName,
+			Version:     version,
 			BaseURL:     baseURL,
 			DatabaseURL: databaseURL,
 			OidcConfig:  OpenidConfiguration{},

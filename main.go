@@ -27,6 +27,61 @@ func main() {
 	cfg := config.NewConfigManager()
 	cfg.LoadDefaults()
 
+	db, err := mongodb.NewDatabase(cfg.DatabaseURL, "oauth_kp")
+	if err != nil {
+		log.Fatalf("failed to connect to database: %v", err)
+	}
+	defer db.Close()
+
+	redis, err := mongodb.NewRedisConfig(&cfg.RedisConfig)
+	if err != nil {
+		log.Fatalf("failed to connect to redis: %v", err)
+	}
+	defer redis.Close()
+
+	jwksRepository := jwks.NewSigningKeyRepository(db, redis)
+	jwksRepository.LoadActiveKeyByAlgorithm()
+	jwksService := jwks.NewJWTService(cfg, jwksRepository)
+
+	clientRepository := client.NewClientRepository(db, redis)
+	clientService := client.NewClientService(clientRepository)
+	clientHandler := client.NewClientHandler(clientService)
+	_ = clientHandler
+
+	app := kp.XMicroservice(cfg)
+
+	app.Get("/test", func(ctx *kp.Ctx) {
+		ctx.L("test_handler")
+
+		payload := map[string]interface{}{
+			"sub": "token_authentication_code",
+			"aud": "client-id",
+			"uid": "user-12345",
+			"exp": time.Now().Add(1 * time.Hour).Unix(),
+		}
+		token, err := jwksService.GenerateJwtTokenWithAlg(ctx.Context(), payload, "RS256")
+		if err != nil {
+			ctx.JSONError(http.StatusInternalServerError, "failed to generate token", err)
+			return
+		}
+
+		ctx.JSON(http.StatusOK, map[string]interface{}{
+			"token": token,
+		}, logger.MaskingRule{
+			Field: "body.token",
+			Type:  logger.MaskingTypeFull,
+		})
+
+	})
+
+	app.Start()
+}
+
+func main2() {
+	godotenv.Load()
+	cfg := config.NewConfigManager()
+	cfg.LoadDefaults()
+
 	app := kp.NewMicroservice(cfg)
 
 	app.Use(func(h http.Handler) http.Handler {
@@ -40,6 +95,7 @@ func main() {
 			r = r.WithContext(pCtx)
 
 			defer func() {
+				fmt.Println("defer recover")
 				if rec := recover(); rec != nil {
 					// default
 					status := http.StatusInternalServerError

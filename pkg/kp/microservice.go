@@ -3,6 +3,7 @@ package kp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -14,25 +15,37 @@ import (
 	"github.com/sing3demons/oauth/kp/internal/config"
 )
 
+type HandleFunc func(http.Handler) http.Handler
+type Middleware HandleFunc
+
 type Microservice struct {
 	config      *config.AppConfig
 	mux         *http.ServeMux
-	middlewares []func(http.Handler) http.Handler
+	middlewares []Middleware
 }
 type IMicroservice interface {
 	Start()
-	GET(path string, handler http.HandlerFunc)
-	POST(path string, handler http.HandlerFunc)
-	PUT(path string, handler http.HandlerFunc)
-	DELETE(path string, handler http.HandlerFunc)
-	PATCH(path string, handler http.HandlerFunc)
-	Use(middleware func(http.Handler) http.Handler)
+	GET(path string, handler http.HandlerFunc, middlewares ...Middleware)
+	POST(path string, handler http.HandlerFunc, middlewares ...Middleware)
+	PUT(path string, handler http.HandlerFunc, middlewares ...Middleware)
+	DELETE(path string, handler http.HandlerFunc, middlewares ...Middleware)
+	PATCH(path string, handler http.HandlerFunc, middlewares ...Middleware)
+	Use(middleware Middleware)
 }
+
 func NewMicroservice(cfg *config.AppConfig) IMicroservice {
 	return &Microservice{
 		config: cfg,
 		mux:    http.NewServeMux(),
 	}
+}
+
+func (m *Microservice) preHandle(final http.HandlerFunc, middlewares ...Middleware) http.HandlerFunc {
+	for _, mw := range middlewares {
+		fmt.Println("applying middleware")
+		final = mw(final).ServeHTTP
+	}
+	return final
 }
 
 func (m *Microservice) Start() {
@@ -77,31 +90,22 @@ func (m *Microservice) Start() {
 	log.Println("server exited")
 }
 
-func (m *Microservice) preHandle(final http.HandlerFunc) http.HandlerFunc {
-	// for i := len(m.middlewares) - 1; i >= 0; i-- {
-	// 	final = m.middlewares[i](final).ServeHTTP
-	// }
-	return final
+func (m *Microservice) GET(path string, handler http.HandlerFunc, middlewares ...Middleware) {
+	m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodGet, path), m.preHandle(handler, middlewares...))
 }
-func (m *Microservice) GET(path string, handler http.HandlerFunc) {
-	m.mux.HandleFunc("GET "+path, m.preHandle(handler))
+func (m *Microservice) POST(path string, handler http.HandlerFunc, middlewares ...Middleware) {
+	m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodPost, path), m.preHandle(handler, middlewares...))
 }
-func (m *Microservice) POST(path string, handler http.HandlerFunc) {
-	m.mux.HandleFunc("POST "+path, m.preHandle(handler))
+func (m *Microservice) PUT(path string, handler http.HandlerFunc, middlewares ...Middleware) {
+	m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodPut, path), m.preHandle(handler, middlewares...))
 }
-func (m *Microservice) PUT(path string, handler http.HandlerFunc) {
-	m.mux.HandleFunc("PUT "+path, m.preHandle(handler))
+func (m *Microservice) DELETE(path string, handler http.HandlerFunc, middlewares ...Middleware) {
+	m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodDelete, path), m.preHandle(handler, middlewares...))
 }
-func (m *Microservice) DELETE(path string, handler http.HandlerFunc) {
-	m.mux.HandleFunc("DELETE "+path, m.preHandle(handler))
-}
-func (m *Microservice) PATCH(path string, handler http.HandlerFunc) {
-	m.mux.HandleFunc("PATCH "+path, m.preHandle(handler))
+func (m *Microservice) PATCH(path string, handler http.HandlerFunc, middlewares ...Middleware) {
+	m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodPatch, path), m.preHandle(handler, middlewares...))
 }
 
-func (m *Microservice) Use(middleware func(http.Handler) http.Handler) {
+func (m *Microservice) Use(middleware Middleware) {
 	m.middlewares = append(m.middlewares, middleware)
 }
-
-type Middleware func(HandleFunc) HandleFunc
-type HandleFunc func(http.Handler) http.Handler

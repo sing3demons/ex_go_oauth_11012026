@@ -31,6 +31,32 @@ type OIDCClient struct {
 	CreatedAt               time.Time `bson:"created_at" json:"-"`
 }
 
+var (
+	ErrInvalidCodeChallengeMethod = errors.New("invalid_code_challenge_method")
+)
+
+func (c *OIDCClient) ValidatePKCE(codeChallenge, method string) error {
+	if !c.RequirePKCE {
+		return nil
+	}
+
+	if codeChallenge == "" {
+		return ErrInvalidCodeChallengeMethod
+	}
+
+	if method != c.PKCECodeChallengeMethod {
+		return ErrInvalidCodeChallengeMethod
+	}
+
+	if c.PKCECodeChallengeMethod == "" {
+		return ErrInvalidCodeChallengeMethod
+	}
+	if c.PKCECodeChallengeMethod != "plain" && c.PKCECodeChallengeMethod != "S256" {
+		return ErrInvalidCodeChallengeMethod
+	}
+
+	return nil
+}
 func (c *OIDCClient) IDTokenAlgOrDefault() string {
 	if c.IDTokenAlg != "" {
 		return c.IDTokenAlg
@@ -84,4 +110,14 @@ func (c *OIDCClient) ValidateClientType() error {
 		return errors.New("invalid client_type")
 	}
 	return nil
+}
+
+
+func (c *OIDCClient) ValidateRedirectURI(uri string) bool {
+	for _, ruri := range c.RedirectUris {
+		if ruri == uri {
+			return true
+		}
+	}
+	return false
 }

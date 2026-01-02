@@ -627,8 +627,6 @@ func (l *Logger) StartTransaction(transactionID, sessionID string) {
 	defer l.mu.Unlock()
 	l.transactionID = transactionID
 	l.sessionID = sessionID
-	l.startTime = time.Now()
-	l.metadata = make(map[string]any)
 }
 
 // AddMetadata adds or overwrites a metadata key-value pair
