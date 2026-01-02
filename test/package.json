@@ -1,0 +1,21 @@
+{
+  "name": "ex_go_oauth",
+  "version": "1.0.0",
+  "description": "",
+  "main": "test_node.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "jsonwebtoken": "^9.0.3",
+    "jsrsasign": "^11.1.0",
+    "jwk-to-pem": "^2.0.7"
+  }
+}
