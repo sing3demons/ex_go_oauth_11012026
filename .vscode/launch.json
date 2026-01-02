@@ -13,7 +13,9 @@
             "env": {
                 "MONGO_URI": "mongodb://localhost:27017",
                 "PORT": "8081",
-                "REDIS_HOST": "localhost:6379"
+                "REDIS_HOST": "localhost:6379",
+                "SERVICE_NAME": "auth-server",
+                "VERSION": "v1.0.0"
             },
         }
     ]

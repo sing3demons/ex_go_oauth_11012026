@@ -148,7 +148,7 @@ func newMuxContext(w http.ResponseWriter, r *http.Request, cfg *config.AppConfig
 		Res: w,
 		Req: r,
 		Cfg: cfg,
-		Log: logger.NewLogger(cfg.ServiceName, cfg.Version),
+		Log: csLog,
 	}
 	myCtx.genTransactionID()
 
@@ -556,32 +556,4 @@ func (c *Ctx) GetFiles(name string) ([]*multipart.FileHeader, error) {
 	}
 
 	return files, nil
-}
-
-func XMicroservice(cfg *config.AppConfig) *Microservice {
-	return &Microservice{
-		config: cfg,
-		mux:    http.NewServeMux(),
-	}
-}
-func (m *Microservice) Run() {
-	srv := &http.Server{
-		Addr:    ":" + m.config.Port,
-		Handler: m.mux,
-	}
-
-	fmt.Printf("Starting server on port %s\n", m.config.Port)
-	if err := srv.ListenAndServe(); err != nil {
-		fmt.Printf("Server error: %v\n", err)
-	}
-
-}
-
-type MyHandler func(ctx *Ctx)
-
-func (m *Microservice) Get(path string, handler MyHandler) {
-	m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodGet, path), func(w http.ResponseWriter, r *http.Request) {
-		ctx := newMuxContext(w, r, m.config)
-		handler(ctx)
-	})
 }

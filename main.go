@@ -1,15 +1,10 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
-	"runtime/debug"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"github.com/sing3demons/oauth/kp/internal/client"
 	"github.com/sing3demons/oauth/kp/internal/config"
@@ -17,9 +12,7 @@ import (
 	"github.com/sing3demons/oauth/kp/internal/discover"
 	"github.com/sing3demons/oauth/kp/internal/jwks"
 	"github.com/sing3demons/oauth/kp/pkg/kp"
-	"github.com/sing3demons/oauth/kp/pkg/logAction"
 	"github.com/sing3demons/oauth/kp/pkg/logger"
-	"github.com/sing3demons/oauth/kp/pkg/mlog"
 )
 
 func main() {
@@ -46,11 +39,15 @@ func main() {
 	clientRepository := client.NewClientRepository(db, redis)
 	clientService := client.NewClientService(clientRepository)
 	clientHandler := client.NewClientHandler(clientService)
-	_ = clientHandler
 
-	app := kp.XMicroservice(cfg)
+	app := kp.NewMicroservice(cfg)
 
-	app.Get("/test", func(ctx *kp.Ctx) {
+	app.POST("/clients", clientHandler.CreateClientHandler)
+	discoverHandler := discover.NewDiscoverHandler(cfg, jwksService)
+	app.GET("/.well-known/openid-configuration", discoverHandler.OIDCHandler)
+	app.GET("/.well-known/jwks.json", discoverHandler.JwksHandler)
+
+	app.GET("/test", func(ctx *kp.Ctx) {
 		ctx.L("test_handler")
 
 		payload := map[string]interface{}{
@@ -71,123 +68,122 @@ func main() {
 			Field: "body.token",
 			Type:  logger.MaskingTypeFull,
 		})
-
 	})
 
 	app.Start()
 }
 
-func main2() {
-	godotenv.Load()
-	cfg := config.NewConfigManager()
-	cfg.LoadDefaults()
+// func main2() {
+// 	godotenv.Load()
+// 	cfg := config.NewConfigManager()
+// 	cfg.LoadDefaults()
 
-	app := kp.NewMicroservice(cfg)
+// 	app := kp.NewMicroservice(cfg)
 
-	app.Use(func(h http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
+// 	app.Use(func(h http.Handler) http.Handler {
+// 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 			start := time.Now()
 
-			pCtx := r.Context()
-			csLog := logger.NewLoggerWithConfig("auth-server", "1.0.0", &cfg.LoggerConfig)
-			csLog.StartTransaction(uuid.NewString(), "")
-			pCtx = context.WithValue(pCtx, "logger", csLog)
-			r = r.WithContext(pCtx)
+// 			pCtx := r.Context()
+// 			csLog := logger.NewLoggerWithConfig("auth-server", "1.0.0", &cfg.LoggerConfig)
+// 			csLog.StartTransaction(uuid.NewString(), "")
+// 			pCtx = context.WithValue(pCtx, "logger", csLog)
+// 			r = r.WithContext(pCtx)
 
-			defer func() {
-				fmt.Println("defer recover")
-				if rec := recover(); rec != nil {
-					// default
-					status := http.StatusInternalServerError
-					msg := "internal_server_error"
+// 			defer func() {
+// 				fmt.Println("defer recover")
+// 				if rec := recover(); rec != nil {
+// 					// default
+// 					status := http.StatusInternalServerError
+// 					msg := "internal_server_error"
 
-					// convert panic → error
-					var err error
-					switch v := rec.(type) {
-					case error:
-						err = v
-					default:
-						err = fmt.Errorf("%v", v)
-					}
+// 					// convert panic → error
+// 					var err error
+// 					switch v := rec.(type) {
+// 					case error:
+// 						err = v
+// 					default:
+// 						err = fmt.Errorf("%v", v)
+// 					}
 
-					// log panic
-					csLog.Error(
-						logAction.EXCEPTION("panic recovered"),
-						map[string]any{
-							"method":   r.Method,
-							"path":     r.URL.Path,
-							"panic":    err.Error(),
-							"duration": time.Since(start).Milliseconds(),
-							"stack":    string(debug.Stack()),
-						},
-					)
+// 					// log panic
+// 					csLog.Error(
+// 						logAction.EXCEPTION("panic recovered"),
+// 						map[string]any{
+// 							"method":   r.Method,
+// 							"path":     r.URL.Path,
+// 							"panic":    err.Error(),
+// 							"duration": time.Since(start).Milliseconds(),
+// 							"stack":    string(debug.Stack()),
+// 						},
+// 					)
 
-					// response
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(status)
-					json.NewEncoder(w).Encode(map[string]any{
-						"error": msg,
-					})
+// 					// response
+// 					w.Header().Set("Content-Type", "application/json")
+// 					w.WriteHeader(status)
+// 					json.NewEncoder(w).Encode(map[string]any{
+// 						"error": msg,
+// 					})
 
-					csLog.FlushError(status, msg)
-				}
-			}()
-			h.ServeHTTP(w, r)
-		})
-	})
+// 					csLog.FlushError(status, msg)
+// 				}
+// 			}()
+// 			h.ServeHTTP(w, r)
+// 		})
+// 	})
 
-	db, err := mongodb.NewDatabase(cfg.DatabaseURL, "oauth_kp")
-	if err != nil {
-		log.Fatalf("failed to connect to database: %v", err)
-	}
-	defer db.Close()
+// 	db, err := mongodb.NewDatabase(cfg.DatabaseURL, "oauth_kp")
+// 	if err != nil {
+// 		log.Fatalf("failed to connect to database: %v", err)
+// 	}
+// 	defer db.Close()
 
-	redis, err := mongodb.NewRedisConfig(&cfg.RedisConfig)
-	if err != nil {
-		log.Fatalf("failed to connect to redis: %v", err)
-	}
-	defer redis.Close()
+// 	redis, err := mongodb.NewRedisConfig(&cfg.RedisConfig)
+// 	if err != nil {
+// 		log.Fatalf("failed to connect to redis: %v", err)
+// 	}
+// 	defer redis.Close()
 
-	jwksRepository := jwks.NewSigningKeyRepository(db, redis)
-	jwksRepository.LoadActiveKeyByAlgorithm()
-	jwksService := jwks.NewJWTService(cfg, jwksRepository)
+// 	jwksRepository := jwks.NewSigningKeyRepository(db, redis)
+// 	jwksRepository.LoadActiveKeyByAlgorithm()
+// 	jwksService := jwks.NewJWTService(cfg, jwksRepository)
 
-	clientRepository := client.NewClientRepository(db, redis)
-	clientService := client.NewClientService(clientRepository)
-	clientHandler := client.NewClientHandler(clientService)
+// 	clientRepository := client.NewClientRepository(db, redis)
+// 	clientService := client.NewClientService(clientRepository)
+// 	clientHandler := client.NewClientHandler(clientService)
 
-	app.POST("/clients", clientHandler.CreateClientHandler)
-	app.GET("/clients/{id}", clientHandler.GetClientHandler)
+// 	// app.POST("/clients", clientHandler.CreateClientHandler)
+// 	app.GET("/clients/{id}", clientHandler.GetClientHandler)
 
-	app.GET("/test", func(w http.ResponseWriter, r *http.Request) {
-		session := r.Header.Get("x-session-id")
-		response := mlog.NewResponseWithLogger(w, r, "test", session)
-		payload := map[string]interface{}{
-			"sub": "token_authentication_code",
-			"aud": "client-id",
-			"uid": "user-12345",
-			"exp": time.Now().Add(1 * time.Hour).Unix(),
-		}
-		token, err := jwksService.GenerateJwtTokenWithAlg(r.Context(), payload, "RS256")
-		if err != nil {
-			http.Error(w, "failed to generate token", http.StatusInternalServerError)
-			return
-		}
-		response.ResponseJson(http.StatusOK, map[string]interface{}{
-			"token": token,
-		}, logger.MaskingRule{
-			Field: "body.token",
-			Type:  logger.MaskingTypeFull,
-		})
+// 	app.GET("/test", func(w http.ResponseWriter, r *http.Request) {
+// 		session := r.Header.Get("x-session-id")
+// 		response := mlog.NewResponseWithLogger(w, r, "test", session)
+// 		payload := map[string]interface{}{
+// 			"sub": "token_authentication_code",
+// 			"aud": "client-id",
+// 			"uid": "user-12345",
+// 			"exp": time.Now().Add(1 * time.Hour).Unix(),
+// 		}
+// 		token, err := jwksService.GenerateJwtTokenWithAlg(r.Context(), payload, "RS256")
+// 		if err != nil {
+// 			http.Error(w, "failed to generate token", http.StatusInternalServerError)
+// 			return
+// 		}
+// 		response.ResponseJson(http.StatusOK, map[string]interface{}{
+// 			"token": token,
+// 		}, logger.MaskingRule{
+// 			Field: "body.token",
+// 			Type:  logger.MaskingTypeFull,
+// 		})
 
-	})
+// 	})
 
-	discoverHandler := discover.NewDiscoverHandler(cfg, jwksService)
-	app.GET("/.well-known/openid-configuration", discoverHandler.OIDCHandler)
-	app.GET("/.well-known/jwks.json", discoverHandler.JwksHandler)
+// 	discoverHandler := discover.NewDiscoverHandler(cfg, jwksService)
+// 	app.GET("/.well-known/openid-configuration", discoverHandler.OIDCHandler)
+// 	app.GET("/.well-known/jwks.json", discoverHandler.JwksHandler)
 
-	app.Start()
-}
+// 	app.Start()
+// }
 
 type AccessTokenClaims struct {
 	Issuer    string `json:"iss"`
