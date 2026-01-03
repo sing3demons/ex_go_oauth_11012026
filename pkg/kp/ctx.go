@@ -433,6 +433,7 @@ func (c *Ctx) Redirect(urlStr string) {
 
 func (c *Ctx) Render(path string, data map[string]any) {
 	c.Res.Header().Set("x-session-id", c.Log.SessionID())
+	c.Res.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// check if file exists
 	templates := "templates/"
 	if strings.HasSuffix(path, ".html") {

@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/sing3demons/oauth/kp/internal/client"
@@ -221,26 +220,25 @@ func (h *AuthHandler) Login(ctx *kp.Ctx) {
 	request, err := h.oauthService.Login(ctx.Context(), body, sessionCode.TokenEndpointAuthMethod) // not_found go to register
 	if err != nil {
 		if err.Error() == "not_found" {
-			// ctx.Render("register", map[string]any{
-			// 	"SessionID":   sessionId,
-			// 	"ClientID":    authorizeRequest.ClientID,
-			// 	"State":       authorizeRequest.State,
-			// 	"RedirectURI": authorizeRequest.RedirectURI,
-			// })
-			uri, err := url.Parse(ctx.Cfg.BaseURL)
-			if err != nil {
-				ctx.JSONError(http.StatusInternalServerError, map[string]string{"error": "server_error"}, err)
-				return
-			}
-			uri.Path = "/oauth/register"
-			q := uri.Query()
-			q.Set("sid", sessionId)
-			q.Set("client_id", authorizeRequest.ClientID)
-			q.Set("state", authorizeRequest.State)
-			q.Set("redirect_uri", authorizeRequest.RedirectURI)
-			uri.RawQuery = q.Encode()
+			ctx.Render("register", map[string]any{
+				"SessionID":   sessionId,
+				"ClientID":    authorizeRequest.ClientID,
+				"State":       authorizeRequest.State,
+				"RedirectURI": authorizeRequest.RedirectURI,
+			})
+			// uri, err := url.Parse(ctx.Cfg.BaseURL)
+			// if err != nil {
+			// 	ctx.JSONError(http.StatusInternalServerError, map[string]string{"error": "server_error"}, err)
+			// 	return
+			// }
+			// uri.Path = "/oauth/register"
+			// q := uri.Query()
+			// q.Set("client_id", authorizeRequest.ClientID)
+			// q.Set("state", authorizeRequest.State)
+			// q.Set("redirect_uri", authorizeRequest.RedirectURI)
+			// uri.RawQuery = q.Encode()
 
-			ctx.Redirect(uri.String())
+			// ctx.Redirect(uri.String())
 			return
 		}
 

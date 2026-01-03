@@ -17,8 +17,7 @@
                 "SERVICE_NAME": "auth-server",
                 "VERSION": "v1.0.0"
             },
-            "args": [],
-            "showLog": true
+            "args": []
         }
     ]
 }

@@ -1,10 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
-	"text/template"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -70,26 +68,13 @@ func main() {
 		State := ctx.Req.URL.Query().Get("state")
 		RedirectURI := ctx.Req.URL.Query().Get("redirect_uri")
 
-		tmpl, err := template.ParseFiles("templates/register.html")
-		if err != nil {
-			http.Error(ctx.Res, "Template error", http.StatusInternalServerError)
-			return
-		}
-
 		data := map[string]any{
 			"SessionID":   sessionID,
 			"ClientID":    ClientID,
 			"State":       State,
 			"RedirectURI": RedirectURI,
 		}
-
-		err = tmpl.Execute(ctx.Res, data)
-		if err != nil {
-			fmt.Printf("Template execution error: %v\n", err)
-			http.Error(ctx.Res, "Template execution error", http.StatusInternalServerError)
-			return
-		}
-
+		ctx.Render("register", data)
 		ctx.Log.Info(logAction.OUTBOUND("server render to client"), map[string]any{
 			"status":  http.StatusOK,
 			"headers": ctx.Res.Header(),

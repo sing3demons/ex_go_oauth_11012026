@@ -66,9 +66,9 @@ func (m *Microservice) Start() {
 	srv := http.Server{
 		Addr:         ":" + m.config.Port,
 		Handler:      handler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  60 * time.Second, // เพิ่มจาก default
+		WriteTimeout: 60 * time.Second, // เพิ่มจาก default
+		IdleTimeout:  120 * time.Second,
 	}
 
 	// wg
