@@ -1,90 +1,138 @@
 package jwks
 
 import (
-	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"strings"
 )
 
-type JWTService struct {
-	privateKey *rsa.PrivateKey
-	publicKey  *rsa.PublicKey
-	issuer     string
-}
 type JWK struct {
 	Kty string `json:"kty"`
-	Use string `json:"use"`
-	Kid string `json:"kid"`
-	Alg string `json:"alg"`
-
-	// RSA
-	N string `json:"n,omitempty"`
-	E string `json:"e,omitempty"`
-
-	// EC
-	Crv string `json:"crv,omitempty"`
-	X   string `json:"x,omitempty"`
-	Y   string `json:"y,omitempty"`
+	E   string `json:"e"`
+	N   string `json:"n"`
+	Kid string `json:"kid,omitempty"`
+	Use string `json:"use,omitempty"`
+	Alg string `json:"alg,omitempty"`
+	// Private key components (optional)
+	D  string `json:"d,omitempty"`
+	P  string `json:"p,omitempty"`
+	Q  string `json:"q,omitempty"`
+	DP string `json:"dp,omitempty"`
+	DQ string `json:"dq,omitempty"`
+	QI string `json:"qi,omitempty"`
 }
 
-type JWKS struct {
-	Keys []JWK `json:"keys"`
+// ExtraKey represents additional JWK fields
+type ExtraKey struct {
+	Kid string `json:"kid,omitempty"`
+	Use string `json:"use,omitempty"`
+	Alg string `json:"alg,omitempty"`
 }
 
-func b64(data []byte) string {
-	return base64.RawURLEncoding.EncodeToString(data)
+// base64URLEncode encodes bytes to base64 URL encoding without padding
+func base64URLEncode(data []byte) string {
+	return strings.TrimRight(base64.URLEncoding.EncodeToString(data), "=")
 }
-func RSAJWK(kid, alg string, pub *rsa.PublicKey) JWK {
-	return JWK{
+
+// base64URLDecode decodes base64 URL encoded string
+func base64URLDecode(data string) ([]byte, error) {
+	if l := len(data) % 4; l > 0 {
+		data += strings.Repeat("=", 4-l)
+	}
+	return base64.URLEncoding.DecodeString(data)
+}
+
+// generateJWK converts a PEM key to JWK format
+func generateJWK(pemKey string, extraKey *ExtraKey, outputJWK string) (*JWK, error) {
+	if pemKey == "" {
+		return nil, fmt.Errorf("empty PEM key")
+	}
+
+	// Check PEM format
+	if !strings.Contains(pemKey, "-----BEGIN") || !strings.Contains(pemKey, "-----END") {
+		return nil, fmt.Errorf("invalid PEM format")
+	}
+
+	// Parse PEM block
+	block, _ := pem.Decode([]byte(pemKey))
+	if block == nil {
+		return nil, fmt.Errorf("failed to parse PEM block")
+	}
+
+	jwkObject := &JWK{
 		Kty: "RSA",
-		Use: "sig",
-		Alg: alg,
-		Kid: kid,
-		N:   b64(pub.N.Bytes()),
-		E:   b64(big.NewInt(int64(pub.E)).Bytes()),
-	}
-}
-func ECJWK(kid, alg string, pub *ecdsa.PublicKey) JWK {
-	return JWK{
-		Kty: "EC",
-		Use: "sig",
-		Alg: alg,
-		Kid: kid,
-		Crv: "P-256",
-		X:   b64(pub.X.Bytes()),
-		Y:   b64(pub.Y.Bytes()),
-	}
-}
-func ParsePrivateKeyFromPEM(pemData string) (any, error) {
-	block, _ := pem.Decode([]byte(pemData))
-	if block == nil {
-		return nil, fmt.Errorf("invalid PEM")
 	}
 
-	switch block.Type {
+	// Check if it's a private key
+	isPrivate := strings.Contains(block.Type, "PRIVATE")
 
-	case "RSA PRIVATE KEY":
-		return x509.ParsePKCS1PrivateKey(block.Bytes)
+	if isPrivate {
+		// Parse private key
+		var privateKey *rsa.PrivateKey
+		var err error
 
-	case "EC PRIVATE KEY":
-		return x509.ParseECPrivateKey(block.Bytes)
+		// Try PKCS8 first
+		key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err == nil {
+			var ok bool
+			privateKey, ok = key.(*rsa.PrivateKey)
+			if !ok {
+				return nil, fmt.Errorf("not an RSA private key")
+			}
+		} else {
+			// Try PKCS1
+			privateKey, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse private key: %v", err)
+			}
+		}
 
-	case "PRIVATE KEY":
-		return x509.ParsePKCS8PrivateKey(block.Bytes)
+		// Extract public key components
+		publicKey := &privateKey.PublicKey
+		jwkObject.E = base64URLEncode(big.NewInt(int64(publicKey.E)).Bytes())
+		jwkObject.N = base64URLEncode(publicKey.N.Bytes())
 
-	default:
-		return nil, fmt.Errorf("unsupported key type: %s", block.Type)
+		// If outputJWK is "private", include private key components
+		if outputJWK == "private" {
+			jwkObject.D = base64URLEncode(privateKey.D.Bytes())
+			jwkObject.P = base64URLEncode(privateKey.Primes[0].Bytes())
+			jwkObject.Q = base64URLEncode(privateKey.Primes[1].Bytes())
+			jwkObject.DP = base64URLEncode(privateKey.Precomputed.Dp.Bytes())
+			jwkObject.DQ = base64URLEncode(privateKey.Precomputed.Dq.Bytes())
+			jwkObject.QI = base64URLEncode(privateKey.Precomputed.Qinv.Bytes())
+		}
+	} else {
+		// Parse public key
+		publicKey, err := x509.ParsePKIXPublicKey(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse public key: %v", err)
+		}
+
+		rsaPublicKey, ok := publicKey.(*rsa.PublicKey)
+		if !ok {
+			return nil, fmt.Errorf("not an RSA public key")
+		}
+
+		jwkObject.E = base64URLEncode(big.NewInt(int64(rsaPublicKey.E)).Bytes())
+		jwkObject.N = base64URLEncode(rsaPublicKey.N.Bytes())
 	}
-}
-func ParsePublicKeyFromPEM(pemData string) (any, error) {
-	block, _ := pem.Decode([]byte(pemData))
-	if block == nil {
-		return nil, fmt.Errorf("invalid PEM")
+
+	// Add extra key fields
+	if extraKey != nil {
+		if extraKey.Kid != "" {
+			jwkObject.Kid = extraKey.Kid
+		}
+		if extraKey.Use != "" {
+			jwkObject.Use = extraKey.Use
+		}
+		if extraKey.Alg != "" {
+			jwkObject.Alg = extraKey.Alg
+		}
 	}
 
-	return x509.ParsePKIXPublicKey(block.Bytes)
+	return jwkObject, nil
 }
