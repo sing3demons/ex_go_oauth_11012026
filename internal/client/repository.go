@@ -17,6 +17,10 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+const (
+	dbTimeout = 15 * time.Second
+)
+
 type ClientRepository struct {
 	collection *mongo.Collection
 	cache      database.IRedisClient
@@ -52,7 +56,7 @@ func NewClientRepository(db *mongodb.Database, cache database.IRedisClient) ICli
 func (r *ClientRepository) InsertClient(c context.Context, data *OIDCClient) error {
 	start := time.Now()
 	log := mlog.L(c)
-	ctx, cancel := context.WithTimeout(c, 15*time.Second)
+	ctx, cancel := context.WithTimeout(c, dbTimeout)
 	defer cancel()
 	if data.ClientID == "" {
 		data.ClientID = uuid.New().String()
@@ -81,55 +85,50 @@ func (r *ClientRepository) InsertClient(c context.Context, data *OIDCClient) err
 		ResponseTime: elapsedMs,
 	}).Debug(logAction.DB_RESPONSE(logAction.DB_CREATE, "mongo response"), resp)
 
-	return err
+	return mongodb.HandleMongoError(err)
 }
 
 func (r *ClientRepository) FindClientByID(c context.Context, clientID string) (OIDCClient, error) {
 	var client OIDCClient
-
 	cacheKey := "client:" + clientID
-	val, err := r.cache.Get(c, cacheKey)
-	if err == nil && val != "" {
-		err = json.Unmarshal([]byte(val), &client)
-		if err == nil {
+
+	if val, err := r.cache.Get(c, cacheKey); err == nil && val != "" {
+		if err := json.Unmarshal([]byte(val), &client); err == nil {
 			return client, nil
 		}
 	}
 
 	start := time.Now()
-	filter := bson.M{
-		"client_id": clientID,
-	}
-	ctx, cancel := context.WithTimeout(c, 15*time.Second)
+	ctx, cancel := context.WithTimeout(c, dbTimeout)
 	defer cancel()
 
+	filter := bson.M{"client_id": clientID}
 	raw := query.GenerateFindQuery(r.collection.Name(), filter)
 	log := mlog.L(c)
 	log.SetDependencyMetadata(logger.DependencyMetadata{
 		Dependency: r.collection.Name(),
 	}).Debug(logAction.DB_REQUEST(logAction.DB_READ, raw), filter)
 
-	err = r.collection.FindOne(ctx, filter).Decode(&client)
+	err := r.collection.FindOne(ctx, filter).Decode(&client)
 	elapsedMs := time.Since(start).Milliseconds()
+
 	if err != nil {
-		result := map[string]any{
-			"error": err.Error(),
-		}
 		log.SetDependencyMetadata(logger.DependencyMetadata{
 			Dependency:   r.collection.Name(),
 			ResponseTime: elapsedMs,
-		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), result)
-		return client, err
-	}
-	result := map[string]any{
-		"data": client,
+		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), map[string]any{
+			"error": err.Error(),
+		})
+		return client, mongodb.HandleMongoError(err)
 	}
 
 	log.SetDependencyMetadata(logger.DependencyMetadata{
 		Dependency:   r.collection.Name(),
 		ResponseTime: elapsedMs,
-	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), result)
-	// cache the client for 60 seconds
+	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), map[string]any{
+		"data": client,
+	})
+
 	r.cache.Set(c, cacheKey, client, 30*time.Second)
-	return client, err
+	return client, nil
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -36,7 +37,10 @@ type IMicroservice interface {
 	DELETE(path string, handler MyHandler, middlewares ...Middleware)
 	// PATCH(path string, handler http.HandlerFunc, middlewares ...Middleware)
 	PATCH(path string, handler MyHandler, middlewares ...Middleware)
+
 	Use(middleware Middleware)
+	// multiple methods (GET, POST, PUT, DELETE, PATCH)
+
 }
 
 func NewMicroservice(cfg *config.AppConfig) IMicroservice {
@@ -146,4 +150,10 @@ func (m *Microservice) DELETE(path string, handler MyHandler, middlewares ...Mid
 
 func (m *Microservice) PATCH(path string, handler MyHandler, middlewares ...Middleware) {
 	m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodPatch, path), m.preHandle(handler, middlewares...))
+}
+
+func (m *Microservice) Methods(methods, path string, handler MyHandler, middlewares ...Middleware) {
+	for _, method := range []string{methods} {
+		m.mux.HandleFunc(fmt.Sprintf("%s %s", strings.ToUpper(method), path), m.preHandle(handler, middlewares...))
+	}
 }

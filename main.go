@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
+	"text/template"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -11,7 +13,11 @@ import (
 	mongodb "github.com/sing3demons/oauth/kp/internal/database"
 	"github.com/sing3demons/oauth/kp/internal/discover"
 	"github.com/sing3demons/oauth/kp/internal/jwks"
+	"github.com/sing3demons/oauth/kp/internal/oauth"
+	"github.com/sing3demons/oauth/kp/internal/session"
+	"github.com/sing3demons/oauth/kp/internal/user"
 	"github.com/sing3demons/oauth/kp/pkg/kp"
+	"github.com/sing3demons/oauth/kp/pkg/logAction"
 	"github.com/sing3demons/oauth/kp/pkg/logger"
 )
 
@@ -40,7 +46,61 @@ func main() {
 	clientService := client.NewClientService(clientRepository)
 	clientHandler := client.NewClientHandler(clientService)
 
+	userRepository := user.NewUserRepository(db)
+	oauthAuthCodeRepository := oauth.NewAuthorizationCodeRepository(db)
+	sessionRepository := session.NewSessionCodeRepository(db)
+
+	oauthService := oauth.NewOAuthService(sessionRepository, userRepository, jwksRepository, oauthAuthCodeRepository)
+	authHandler := oauth.NewAuthHandler(cfg, clientService, oauthService)
+
 	app := kp.NewMicroservice(cfg)
+	app.GET("/oauth/register", func(ctx *kp.Ctx) {
+		ctx.L("render_register_page")
+		// ctx.Render("register", map[string]any{
+		// 		"SessionID":   sessionId,
+		// 		"ClientID":    authorizeRequest.ClientID,
+		// 		"State":       authorizeRequest.State,
+		// 		"RedirectURI": authorizeRequest.RedirectURI,
+		// 	})
+		sessionID := ctx.Req.URL.Query().Get("sid")
+		if sessionID == "" {
+			sessionID = ctx.Req.URL.Query().Get("SessionID")
+		}
+		ClientID := ctx.Req.URL.Query().Get("client_id")
+		State := ctx.Req.URL.Query().Get("state")
+		RedirectURI := ctx.Req.URL.Query().Get("redirect_uri")
+
+		tmpl, err := template.ParseFiles("templates/register.html")
+		if err != nil {
+			http.Error(ctx.Res, "Template error", http.StatusInternalServerError)
+			return
+		}
+
+		data := map[string]any{
+			"SessionID":   sessionID,
+			"ClientID":    ClientID,
+			"State":       State,
+			"RedirectURI": RedirectURI,
+		}
+
+		err = tmpl.Execute(ctx.Res, data)
+		if err != nil {
+			fmt.Printf("Template execution error: %v\n", err)
+			http.Error(ctx.Res, "Template execution error", http.StatusInternalServerError)
+			return
+		}
+
+		ctx.Log.Info(logAction.OUTBOUND("server render to client"), map[string]any{
+			"status":  http.StatusOK,
+			"headers": ctx.Res.Header(),
+			"body":    data,
+		})
+		ctx.Log.Flush(http.StatusOK, "success")
+	})
+
+	app.GET("/oauth/authorize", authHandler.AuthorizeHandler)
+	app.POST("/oauth/register", authHandler.Register)
+	app.POST("/oauth/login", authHandler.Login)
 
 	app.POST("/clients", clientHandler.CreateClientHandler)
 	app.GET("/clients/{id}", clientHandler.GetClientHandler)

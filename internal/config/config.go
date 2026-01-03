@@ -122,7 +122,7 @@ func (cm *ConfigManager) GetConfig() *AppConfig {
 
 func (cm *AppConfig) LoadDefaults() error {
 	if cm.BaseURL == "" {
-		cm.BaseURL = "http://localhost:8080"
+		cm.BaseURL = "http://localhost:" + cm.Port
 	}
 	config := OpenidConfiguration{
 		Issuer:                 cm.BaseURL,

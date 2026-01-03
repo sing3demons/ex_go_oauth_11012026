@@ -13,6 +13,10 @@ const (
 	MaskingTypePartial MaskingType = "partial" // แสดงบางส่วน เช่น "abc***xyz"
 	MaskingTypeEmail   MaskingType = "email"   // แสดงเป็น "a***@example.com"
 	MaskingTypeCard    MaskingType = "card"    // แสดงเป็น "****-****-****-1234"
+	MaskingTypeFirstName MaskingType = "first_name" // แสดงเฉพาะชื่อจริง เช่น "J***"
+	MaskingTypeLastName  MaskingType = "last_name"  // แสดงเฉพาะนามสกุล เช่น "D***"
+	MaskingTypePhone     MaskingType = "phone"     // แสดงหมายเลขโทรศัพท์บางส่วน เช่น "
+	MaskingTypeUsername  MaskingType = "username"  // แสดงชื่อผู้ใช้บางส่วน เช่น "user**"
 )
 
 type MaskingRule struct {

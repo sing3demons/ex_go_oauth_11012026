@@ -5,16 +5,22 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"html/template"
 	"io"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"reflect"
 	"regexp"
 	"runtime/debug"
 	"strings"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 	"github.com/sing3demons/oauth/kp/internal/config"
 	"github.com/sing3demons/oauth/kp/pkg/logAction"
@@ -41,10 +47,11 @@ const (
 )
 
 type Ctx struct {
-	Res http.ResponseWriter
-	Req *http.Request
-	Cfg *config.AppConfig
-	Log *logger.Logger
+	Res      http.ResponseWriter
+	Req      *http.Request
+	Cfg      *config.AppConfig
+	Log      *logger.Logger
+	validate *validator.Validate
 }
 
 // NewTransactionID generates or retrieves a transaction ID with proper priority:
@@ -126,6 +133,10 @@ func (c *Ctx) SessionID() string {
 
 	return sid
 }
+func (c *Ctx) SetSessionID(sid string) {
+	c.Req = c.Req.WithContext(context.WithValue(c.Req.Context(), SessionID, sid))
+	c.Log.SetSessionID(sid)
+}
 func (c *Ctx) genTransactionID() string {
 	tid, ok := c.Req.Context().Value(TransactionID).(string)
 	if !ok || tid == "" {
@@ -139,21 +150,20 @@ func (c *Ctx) genTransactionID() string {
 func newMuxContext(w http.ResponseWriter, r *http.Request, cfg *config.AppConfig) *Ctx {
 	start := time.Now()
 
-	pCtx := r.Context()
 	csLog := logger.NewLoggerWithConfig(cfg.ServiceName, cfg.Version, &cfg.LoggerConfig)
-	pCtx = context.WithValue(pCtx, LoggerKey, csLog)
+	pCtx := context.WithValue(r.Context(), "logger", csLog)
 	r = r.WithContext(pCtx)
 
 	myCtx := &Ctx{
-		Res: w,
-		Req: r,
-		Cfg: cfg,
-		Log: csLog,
+		Res:      w,
+		Req:      r,
+		Cfg:      cfg,
+		Log:      csLog,
+		validate: validator.New(),
 	}
 	myCtx.genTransactionID()
 
 	defer func() {
-		fmt.Println("defer recover")
 		if rec := recover(); rec != nil {
 			// default
 			status := http.StatusInternalServerError
@@ -258,6 +268,74 @@ func (c *Ctx) Bind(v any) error {
 		return fmt.Errorf("unsupported content type: %s", contentType)
 	}
 }
+func (c *Ctx) checkStructValidation(v any) error {
+	ptrVal := reflect.ValueOf(v)
+	if ptrVal.Kind() != reflect.Ptr || ptrVal.IsNil() {
+		return nil
+	}
+
+	if ptrVal.Elem().Kind() == reflect.Struct {
+		// Convert url.Values to map[string]string (pick first value)
+		jsonData, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Errorf("failed to convert query params: %w", err)
+		}
+		if err := json.Unmarshal(jsonData, v); err != nil {
+			return fmt.Errorf("failed to unmarshal query params to struct: %w", err)
+		}
+
+		// Validate struct
+		if c.validate == nil {
+			c.validate = validator.New()
+		}
+		return c.validate.Struct(v)
+	}
+
+	return nil
+}
+func (c *Ctx) BindQuery(v any) error {
+	values := c.Req.URL.Query()
+	ptrVal := reflect.ValueOf(v)
+
+	if ptrVal.Kind() != reflect.Ptr || ptrVal.IsNil() {
+		return fmt.Errorf("BindQuery requires a non-nil pointer")
+	}
+
+	if ptrVal.Kind() == reflect.Map && ptrVal.Type().Key().Kind() == reflect.String {
+		return setFormMap(v, values)
+	}
+
+	// For struct types, convert query values to struct
+	if ptrVal.Elem().Kind() == reflect.Struct {
+		// Convert url.Values to map[string]string (pick first value)
+		data := make(map[string]string)
+		for key, vals := range values {
+			if len(vals) > 0 {
+				data[key] = vals[0]
+			}
+		}
+
+		jsonData, err := json.Marshal(data)
+		if err != nil {
+			return fmt.Errorf("failed to convert query params: %w", err)
+		}
+		if err := json.Unmarshal(jsonData, v); err != nil {
+			return fmt.Errorf("failed to unmarshal query params to struct: %w", err)
+		}
+
+		// Validate struct
+		if c.validate == nil {
+			c.validate = validator.New()
+		}
+		err = c.validate.Struct(v)
+		if err != nil {
+			fmt.Println("BindQuery validation error:", err.Error())
+		}
+		return err
+	}
+
+	return nil
+}
 
 func (c *Ctx) L(userCase string, masking ...logger.MaskingRule) *logger.Logger {
 	c.Log.SetUseCase(userCase)
@@ -351,6 +429,60 @@ func (c *Ctx) Redirect(urlStr string) {
 
 	msg := fmt.Sprintf("redirect to %s", urlStr)
 	c.Log.Flush(http.StatusFound, msg)
+}
+
+func (c *Ctx) Render(path string, data map[string]any) {
+	c.Res.Header().Set("x-session-id", c.Log.SessionID())
+	// check if file exists
+	templates := "templates/"
+	if strings.HasSuffix(path, ".html") {
+		templates += path
+	} else {
+		templates += path + ".html"
+	}
+
+	if _, err := os.Stat(templates); errors.Is(err, os.ErrNotExist) {
+		c.Res.WriteHeader(http.StatusInternalServerError)
+		c.Res.Write([]byte("template file not found"))
+		c.Log.Error(logAction.OUTBOUND("server render to client"), map[string]any{
+			"status":  http.StatusInternalServerError,
+			"headers": c.Res.Header(),
+			"error":   "template file not found",
+		})
+		c.Log.FlushError(http.StatusInternalServerError, "template file not found")
+		return
+	}
+
+	tmpl, err := template.ParseFiles(templates)
+	if err != nil {
+		c.Res.WriteHeader(http.StatusInternalServerError)
+		c.Res.Write([]byte("failed to parse template"))
+		c.Log.Error(logAction.OUTBOUND("server render to client"), map[string]any{
+			"status": http.StatusInternalServerError,
+			"error":  err.Error(),
+		})
+		c.Log.FlushError(http.StatusInternalServerError, "template parse error")
+		return
+	}
+
+	// Execute template to buffer first to catch errors before writing headers
+	if err := tmpl.Execute(c.Res, data); err != nil {
+		c.Res.WriteHeader(http.StatusInternalServerError)
+		c.Res.Write([]byte("failed to render template"))
+		c.Log.Error(logAction.OUTBOUND("server render to client"), map[string]any{
+			"status": http.StatusInternalServerError,
+			"error":  err.Error(),
+		})
+		c.Log.FlushError(http.StatusInternalServerError, "template execution error")
+		return
+	}
+
+	c.Log.Info(logAction.OUTBOUND("server render to client"), map[string]any{
+		"status":  http.StatusOK,
+		"headers": c.Res.Header(),
+		"body":    data,
+	})
+	c.Log.Flush(http.StatusOK, "success")
 }
 
 func (c *Ctx) JSONError(code int, v any, err error) {
@@ -556,4 +688,38 @@ func (c *Ctx) GetFiles(name string) ([]*multipart.FileHeader, error) {
 	}
 
 	return files, nil
+}
+
+var (
+	errUnknownType = errors.New("unknown type")
+
+	// ErrConvertMapStringSlice can not convert to map[string][]string
+	ErrConvertMapStringSlice = errors.New("can not convert to map slices of strings")
+
+	// ErrConvertToMapString can not convert to map[string]string
+	ErrConvertToMapString = errors.New("can not convert to map of strings")
+)
+
+func setFormMap(ptr any, form map[string][]string) error {
+	el := reflect.TypeOf(ptr).Elem()
+
+	if el.Kind() == reflect.Slice {
+		ptrMap, ok := ptr.(map[string][]string)
+		if !ok {
+			return ErrConvertMapStringSlice
+		}
+		maps.Copy(ptrMap, form)
+
+		return nil
+	}
+
+	ptrMap, ok := ptr.(map[string]string)
+	if !ok {
+		return ErrConvertToMapString
+	}
+	for k, v := range form {
+		ptrMap[k] = v[len(v)-1] // pick last
+	}
+
+	return nil
 }

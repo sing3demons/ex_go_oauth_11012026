@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>เข้าสู่ระบบ - OAuth2 Server</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+      .login-container {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        max-width: 400px;
+        width: 100%;
+        padding: 40px;
+      }
+      .logo {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+      .logo h1 {
+        color: #667eea;
+        font-size: 28px;
+        margin-bottom: 10px;
+      }
+      .client-info {
+        background: #f7fafc;
+        border-left: 4px solid #667eea;
+        padding: 15px;
+        margin-bottom: 25px;
+        border-radius: 4px;
+      }
+      .client-info p {
+        color: #4a5568;
+        font-size: 14px;
+        margin-bottom: 5px;
+      }
+      .client-info strong {
+        color: #2d3748;
+      }
+      .form-group {
+        margin-bottom: 20px;
+      }
+      label {
+        display: block;
+        color: #4a5568;
+        font-size: 14px;
+        font-weight: 500;
+        margin-bottom: 8px;
+      }
+      input[type='text'],
+      input[type='password'] {
+        width: 100%;
+        padding: 12px 15px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 14px;
+        transition: border-color 0.3s;
+      }
+      input[type='email']:focus,
+      input[type='password']:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+      .btn {
+        width: 100%;
+        padding: 12px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+      }
+      .btn:active {
+        transform: translateY(0);
+      }
+      .error {
+        background: #fed7d7;
+        color: #c53030;
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        font-size: 14px;
+        display: none;
+      }
+      .error.show {
+        display: block;
+      }
+      .register-link {
+        text-align: center;
+        margin-top: 20px;
+        color: #718096;
+        font-size: 14px;
+      }
+      .register-link a {
+        color: #667eea;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .register-link a:hover {
+        text-decoration: underline;
+      }
+      .scope-info {
+        margin-top: 20px;
+        padding: 15px;
+        background: #f7fafc;
+        border-radius: 8px;
+      }
+      .scope-info h3 {
+        color: #2d3748;
+        font-size: 14px;
+        margin-bottom: 10px;
+      }
+      .scope-list {
+        list-style: none;
+      }
+      .scope-list li {
+        color: #4a5568;
+        font-size: 13px;
+        padding: 5px 0;
+        padding-left: 20px;
+        position: relative;
+      }
+      .scope-list li:before {
+        content: '✓';
+        position: absolute;
+        left: 0;
+        color: #48bb78;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="login-container">
+      <div class="logo">
+        <h1>🔐 OAuth2 Server</h1>
+        <p style="color: #718096; font-size: 14px">เข้าสู่ระบบเพื่อดำเนินการต่อ</p>
+      </div>
+
+      {{if .ClientName}}
+      <div class="client-info">
+        <p><strong>แอปพลิเคชัน:</strong> {{.ClientName}}</p>
+        <p style="font-size: 12px; color: #718096; margin-top: 5px">ต้องการเข้าถึงข้อมูลของคุณ</p>
+      </div>
+      {{end}}
+
+      <div id="error" class="error"></div>
+
+      <form id="loginForm">
+        <input type="hidden" name="session_id" value="{{.SessionID}}" />
+        <input type="hidden" name="client_id" value="{{.ClientID}}" />
+        <input type="hidden" name="state" value="{{.State}}" />
+        <input type="hidden" name="redirect_uri" value="{{.RedirectURI}}" />
+
+        <div class="form-group">
+          <label for="username">username</label>
+          <input type="text" id="username" name="username" required placeholder="your username" />
+        </div>
+
+        <div class="form-group">
+          <label for="password">รหัสผ่าน</label>
+          <input type="password" id="password" name="password" required placeholder="••••••••" />
+        </div>
+
+        <button type="submit" class="btn">เข้าสู่ระบบ</button>
+      </form>
+      <div class="register-link">ยังไม่มีบัญชี? <a href="/oauth/login">ลงทะเบียน</a></div>
+    </div>
+
+    <script>
+      // Note: This is OAuth2 server template, not part of the BFF application
+      // The form submits to OAuth2 server, which then redirects to BFF callback
+      document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault()
+
+        const errorDiv = document.getElementById('error')
+        errorDiv.classList.remove('show')
+
+        const formData = new FormData(e.target)
+        const data = {
+          username: formData.get('username'),
+          password: formData.get('password'),
+        }
+        const queryParams = new URLSearchParams({
+          client_id: formData.get('client_id'),
+          state: formData.get('state'),
+          redirect_uri: formData.get('redirect_uri'),
+          sid: formData.get('session_id'),
+        }).toString()
+
+        try {
+          const response = await fetch(`/oauth/login?${queryParams}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+            body: JSON.stringify(data),
+          })
+
+          const result = await response.json()
+
+          if (response.ok) {
+            // Redirect to callback URL
+            // This will be the BFF callback URL with authorization code
+            if (result.redirect_uri) {
+              // Use window.location.replace to avoid CORS issues
+              window.location.replace(result.redirect_uri)
+            } else {
+              errorDiv.textContent = 'เกิดข้อผิดพลาด: ไม่พบ redirect URI'
+              errorDiv.classList.add('show')
+            }
+          } else {
+            errorDiv.textContent = result.error_description || 'เข้าสู่ระบบไม่สำเร็จ'
+            errorDiv.classList.add('show')
+          }
+        } catch (error) {
+          errorDiv.textContent = 'เกิดข้อผิดพลาดในการเชื่อมต่อ'
+          errorDiv.classList.add('show')
+        }
+      })
+    </script>
+  </body>
+</html>

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ลงทะเบียน - OAuth2 Server</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+      .register-container {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        max-width: 400px;
+        width: 100%;
+        padding: 40px;
+      }
+      .logo {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+      .logo h1 {
+        color: #667eea;
+        font-size: 28px;
+        margin-bottom: 10px;
+      }
+      .form-group {
+        margin-bottom: 20px;
+      }
+      label {
+        display: block;
+        color: #4a5568;
+        font-size: 14px;
+        font-weight: 500;
+        margin-bottom: 8px;
+      }
+      input[type='text'],
+      input[type='email'],
+      input[type='password'] {
+        width: 100%;
+        padding: 12px 15px;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        font-size: 14px;
+        transition: border-color 0.3s;
+      }
+      input:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+      .btn {
+        width: 100%;
+        padding: 12px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+      }
+      .error {
+        background: #fed7d7;
+        color: #c53030;
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        font-size: 14px;
+        display: none;
+      }
+      .error.show {
+        display: block;
+      }
+      .success {
+        background: #c6f6d5;
+        color: #22543d;
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        font-size: 14px;
+        display: none;
+      }
+      .success.show {
+        display: block;
+      }
+      .login-link {
+        text-align: center;
+        margin-top: 20px;
+        color: #718096;
+        font-size: 14px;
+      }
+      .login-link a {
+        color: #667eea;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .login-link a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="register-container">
+      <div class="logo">
+        <h1>🔐 OAuth2 Server</h1>
+        <p style="color: #718096; font-size: 14px">สร้างบัญชีใหม่</p>
+      </div>
+
+      <div id="error" class="error"></div>
+      <div id="success" class="success"></div>
+
+      <form id="registerForm">
+        <input type="hidden" name="session_id" value="{{.SessionID}}" />
+        <input type="hidden" name="client_id" value="{{.ClientID}}" />
+        <input type="hidden" name="state" value="{{.State}}" />
+        <input type="hidden" name="redirect_uri" value="{{.RedirectURI}}" />
+        <div class="form-group">
+          <label for="name">ชื่อ-นามสกุล</label>
+          <input type="text" id="name" name="name" required placeholder="John Doe" />
+        </div>
+
+        <div class="form-group">
+          <label for="email">อีเมล</label>
+          <input type="email" id="email" name="email" required placeholder="your@email.com" />
+        </div>
+
+        <div class="form-group">
+          <label for="password">รหัสผ่าน</label>
+          <input type="password" id="password" name="password" required placeholder="••••••••" minlength="6" />
+        </div>
+
+        <button type="submit" class="btn">ลงทะเบียน</button>
+      </form>
+
+      <div class="login-link">มีบัญชีอยู่แล้ว? <a href="/oauth/login">เข้าสู่ระบบ</a></div>
+    </div>
+
+    <script>
+      document.getElementById('registerForm').addEventListener('submit', async (e) => {
+        e.preventDefault()
+
+        const errorDiv = document.getElementById('error')
+        const successDiv = document.getElementById('success')
+        errorDiv.classList.remove('show')
+        successDiv.classList.remove('show')
+
+        const formData = new FormData(e.target)
+        const data = {
+          name: formData.get('name'),
+          email: formData.get('email'),
+          password: formData.get('password'),
+        }
+        const queryParams = new URLSearchParams({
+          client_id: formData.get('client_id'),
+          state: formData.get('state'),
+          redirect_uri: formData.get('redirect_uri'),
+          sid: formData.get('session_id'),
+        }).toString()
+
+        try {
+          const response = await fetch(`/oauth/register?${queryParams}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data),
+          })
+
+          const result = await response.json()
+
+          if (response.ok) {
+            successDiv.textContent = 'ลงทะเบียนสำเร็จ! กำลังเข้าสู่ระบบ...'
+            successDiv.classList.add('show')
+
+            // Redirect after 1 second
+            setTimeout(() => {
+              if (result.redirect_uri) {
+                window.location.href = result.redirect_uri
+              } else {
+                window.location.href = '/auth/login?session_id=' + data.session_id
+              }
+            }, 1000)
+          } else {
+            errorDiv.textContent = result.error_description || 'ลงทะเบียนไม่สำเร็จ'
+            errorDiv.classList.add('show')
+          }
+        } catch (error) {
+          errorDiv.textContent = 'เกิดข้อผิดพลาดในการเชื่อมต่อ'
+          errorDiv.classList.add('show')
+        }
+      })
+    </script>
+  </body>
+</html>

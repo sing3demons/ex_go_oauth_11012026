@@ -18,7 +18,7 @@ type ISessionCodeRepository interface {
 	Create(ctx context.Context, code *SessionCode) error
 	FindByID(ctx context.Context, id string) (*SessionCode, error)
 	DeleteByID(ctx context.Context, id string) error
-	UpdateState(ctx context.Context, id string, state string) error
+	UpdateState(ctx context.Context, id string, state, login_hint string) error
 }
 
 type SessionCodeRepository struct {
@@ -53,7 +53,7 @@ func (r *SessionCodeRepository) Create(c context.Context, code *SessionCode) err
 	ctx, cancel := context.WithTimeout(c, 15*time.Second)
 	defer cancel()
 
-	code.State = "next"
+	code.Status = "next"
 	if code.CreatedAt.IsZero() {
 		code.CreatedAt = time.Now()
 	}
@@ -82,7 +82,7 @@ func (r *SessionCodeRepository) Create(c context.Context, code *SessionCode) err
 		Dependency:   r.collection.Name(),
 		ResponseTime: elapsedMs,
 	}).Debug(logAction.DB_RESPONSE(logAction.DB_CREATE, "mongo response"), result)
-	return err
+	return database.HandleMongoError(err)
 }
 
 func (r *SessionCodeRepository) FindByID(c context.Context, id string) (*SessionCode, error) {
@@ -92,7 +92,7 @@ func (r *SessionCodeRepository) FindByID(c context.Context, id string) (*Session
 	defer cancel()
 
 	var code SessionCode
-	filter := bson.M{"client_id": id}
+	filter := bson.M{"_id": id}
 
 	raw := query.GenerateFindQuery(r.collection.Name(), filter)
 	log.SetDependencyMetadata(logger.DependencyMetadata{
@@ -112,7 +112,7 @@ func (r *SessionCodeRepository) FindByID(c context.Context, id string) (*Session
 		Dependency:   r.collection.Name(),
 		ResponseTime: elapsedMs,
 	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), result)
-	return &code, nil
+	return &code, database.HandleMongoError(err)
 }
 
 func (r *SessionCodeRepository) DeleteByID(c context.Context, id string) error {
@@ -142,9 +142,9 @@ func (r *SessionCodeRepository) DeleteByID(c context.Context, id string) error {
 		Dependency:   r.collection.Name(),
 		ResponseTime: elapsedMs,
 	}).Debug(logAction.DB_RESPONSE(logAction.DB_DELETE, "mongo response"), result)
-	return err
+	return database.HandleMongoError(err)
 }
-func (r *SessionCodeRepository) UpdateState(c context.Context, id string, state string) error {
+func (r *SessionCodeRepository) UpdateState(c context.Context, id string, state, login_hint string) error {
 	start := time.Now()
 	log := mlog.L(c)
 	ctx, cancel := context.WithTimeout(c, 15*time.Second)
@@ -156,6 +156,9 @@ func (r *SessionCodeRepository) UpdateState(c context.Context, id string, state 
 			"state":      state,
 			"updated_at": time.Now(),
 		},
+	}
+	if login_hint != "" {
+		update["$set"].(bson.M)["login_hint"] = login_hint
 	}
 
 	raw := query.GenerateUpdateQuery(r.collection.Name(), filter, update)
@@ -176,5 +179,5 @@ func (r *SessionCodeRepository) UpdateState(c context.Context, id string, state 
 		Dependency:   r.collection.Name(),
 		ResponseTime: elapsedMs,
 	}).Debug(logAction.DB_RESPONSE(logAction.DB_UPDATE, "mongo response"), result)
-	return err
+	return database.HandleMongoError(err)
 }
