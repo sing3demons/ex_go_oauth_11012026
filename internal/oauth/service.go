@@ -41,7 +41,7 @@ func (s *OAuthService) CreateSessionCode(ctx context.Context, sid, method string
 		Nonce:                   data.Nonce,
 		CodeChallenge:           data.CodeChallenge,
 		CodeChallengeMethod:     data.CodeChallengeMethod,
-		TokenEndpointAuthMethod: method,
+		IDTokenAlg:              method,
 	})
 }
 

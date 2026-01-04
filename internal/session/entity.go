@@ -15,7 +15,7 @@ type SessionCode struct {
 	CodeChallengeMethod string `json:"code_challenge_method,omitempty" bson:"code_challenge_method,omitempty"`
 	Status              string `json:"status" bson:"status"`
 
-	TokenEndpointAuthMethod string `bson:"token_endpoint_auth_method" json:"token_endpoint_auth_method,omitempty"`
+	IDTokenAlg string `bson:"id_token_alg" json:"id_token_alg,omitempty"`
 
 	CreatedAt time.Time `bson:"created_at" json:"-"`
 	UpdatedAt time.Time `bson:"updated_at" json:"-"`

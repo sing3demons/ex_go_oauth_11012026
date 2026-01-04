@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/sing3demons/oauth/kp/internal/client"
@@ -31,20 +32,7 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 	// /oauth/authorize?response_type=code&client_id=cd4e7670-5e96-4a3f-addb-51fa43db86fc&redirect_uri=http://localhost/callback&scope=openid%20profile&state=xyz&code_challenge=abc&code_challenge_method=S256
 
 	// parse query params
-	// q := ctx.Req.URL.Query()
-	authorizeRequest := AuthorizeRequest{
-		// ResponseType:        q.Get("response_type"),
-		// ClientID:            q.Get("client_id"),
-		// RedirectURI:         q.Get("redirect_uri"),
-		// Scope:               q.Get("scope"),
-		// State:               q.Get("state"),
-		// ResponseMode:        q.Get("response_mode"),
-		// LoginHint:           q.Get("login_hint"),
-		// Nonce:               q.Get("nonce"),
-		// CodeChallenge:       q.Get("code_challenge"),
-		// CodeChallengeMethod: q.Get("code_challenge_method"),
-		// SessionID:           q.Get("sid"),
-	}
+	authorizeRequest := AuthorizeRequest{}
 	if err := ctx.BindQuery(&authorizeRequest); err != nil {
 		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
 		return
@@ -174,7 +162,7 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 	if authorizeRequest.LoginHint != "" {
 	}
 
-	if err := h.oauthService.CreateSessionCode(ctx.Context(), sessionId, clientModel.TokenEndpointAuthMethod, authorizeRequest); err != nil {
+	if err := h.oauthService.CreateSessionCode(ctx.Context(), sessionId, clientModel.IDTokenAlg, authorizeRequest); err != nil {
 		if err.Error() != "duplicate" {
 			ctx.JSONError(http.StatusInternalServerError, map[string]string{"error": "server_error"}, err)
 			return
@@ -215,30 +203,31 @@ func (h *AuthHandler) Login(ctx *kp.Ctx) {
 	}
 
 	body.Update(authorizeRequest.ClientID, authorizeRequest.RedirectURI, authorizeRequest.Scope, authorizeRequest.State)
+	body.SessionID = sessionId
 
 	// check user credentials here
-	request, err := h.oauthService.Login(ctx.Context(), body, sessionCode.TokenEndpointAuthMethod) // not_found go to register
+	request, err := h.oauthService.Login(ctx.Context(), body, sessionCode.IDTokenAlg) // not_found go to register
 	if err != nil {
 		if err.Error() == "not_found" {
-			ctx.Render("register", map[string]any{
-				"SessionID":   sessionId,
-				"ClientID":    authorizeRequest.ClientID,
-				"State":       authorizeRequest.State,
-				"RedirectURI": authorizeRequest.RedirectURI,
-			})
-			// uri, err := url.Parse(ctx.Cfg.BaseURL)
-			// if err != nil {
-			// 	ctx.JSONError(http.StatusInternalServerError, map[string]string{"error": "server_error"}, err)
-			// 	return
-			// }
-			// uri.Path = "/oauth/register"
-			// q := uri.Query()
-			// q.Set("client_id", authorizeRequest.ClientID)
-			// q.Set("state", authorizeRequest.State)
-			// q.Set("redirect_uri", authorizeRequest.RedirectURI)
-			// uri.RawQuery = q.Encode()
+			// ctx.Render("register", map[string]any{
+			// 	"SessionID":   sessionId,
+			// 	"ClientID":    authorizeRequest.ClientID,
+			// 	"State":       authorizeRequest.State,
+			// 	"RedirectURI": authorizeRequest.RedirectURI,
+			// })
+			uri, err := url.Parse(ctx.Cfg.BaseURL)
+			if err != nil {
+				ctx.JSONError(http.StatusInternalServerError, map[string]string{"error": "server_error"}, err)
+				return
+			}
+			uri.Path = "/oauth/register"
+			q := uri.Query()
+			q.Set("client_id", authorizeRequest.ClientID)
+			q.Set("state", authorizeRequest.State)
+			q.Set("redirect_uri", authorizeRequest.RedirectURI)
+			uri.RawQuery = q.Encode()
 
-			// ctx.Redirect(uri.String())
+			ctx.Redirect(uri.String())
 			return
 		}
 
@@ -276,7 +265,7 @@ func (h *AuthHandler) Register(ctx *kp.Ctx) {
 	body.Update(authorizeRequest.ClientID, authorizeRequest.RedirectURI, authorizeRequest.Scope, authorizeRequest.State)
 
 	// check user credentials here
-	request, err := h.oauthService.RegisterUser(ctx.Context(), body, sessionCode.TokenEndpointAuthMethod) // not_found go to register
+	request, err := h.oauthService.RegisterUser(ctx.Context(), body, sessionCode.IDTokenAlg) // not_found go to register
 	if err != nil {
 		ctx.JSONError(http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"}, err)
 		return

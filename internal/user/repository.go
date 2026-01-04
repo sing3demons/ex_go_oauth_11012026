@@ -94,7 +94,7 @@ func (r *UserRepository) FindUserByUsername(c context.Context, username string) 
 	ctx, cancel := context.WithTimeout(c, dbTimeout)
 	defer cancel()
 
-	user := ProfileModel{}
+	user := &ProfileModel{}
 	filter := bson.M{}
 	masking := []logger.MaskingRule{}
 
@@ -122,6 +122,7 @@ func (r *UserRepository) FindUserByUsername(c context.Context, username string) 
 	maskingDbResponse := make([]logger.MaskingRule, 4)
 	if err != nil {
 		result["error"] = err.Error()
+		user = nil
 	} else {
 		result["data"] = user
 		maskingDbResponse = []logger.MaskingRule{
@@ -149,7 +150,7 @@ func (r *UserRepository) FindUserByUsername(c context.Context, username string) 
 		ResponseTime: elapsedMs,
 	}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), result, maskingDbResponse...)
 
-	return &user, database.HandleMongoError(err)
+	return user, database.HandleMongoError(err)
 }
 
 func (r *UserRepository) FindUserByID(ctx context.Context, id string, fields ...string) (*ProfileModel, error) {

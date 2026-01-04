@@ -184,7 +184,7 @@
 
         <button type="submit" class="btn">เข้าสู่ระบบ</button>
       </form>
-      <div class="register-link">ยังไม่มีบัญชี? <a href="/oauth/login">ลงทะเบียน</a></div>
+      <div class="register-link">ยังไม่มีบัญชี? <a href="/oauth/register?client_id={{.ClientID}}&state={{.State}}&redirect_uri={{.RedirectURI}}&sid={{.SessionID}}">ลงทะเบียน</a></div>
     </div>
 
     <script>

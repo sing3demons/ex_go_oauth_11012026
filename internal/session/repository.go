@@ -31,10 +31,6 @@ func NewSessionCodeRepository(db *database.Database) ISessionCodeRepository {
 		collection: db.GetCollection("session_codes"),
 	}
 	indexes := []mongo.IndexModel{
-		{
-			Keys:    bson.D{{Key: "client_id", Value: 1}},
-			Options: options.Index().SetUnique(true),
-		},
 		// TTL: delete expired inactive keys
 		{
 			Keys:    bson.D{{Key: "expires_at", Value: 1}},
@@ -144,7 +140,7 @@ func (r *SessionCodeRepository) DeleteByID(c context.Context, id string) error {
 	}).Debug(logAction.DB_RESPONSE(logAction.DB_DELETE, "mongo response"), result)
 	return database.HandleMongoError(err)
 }
-func (r *SessionCodeRepository) UpdateState(c context.Context, id string, state, login_hint string) error {
+func (r *SessionCodeRepository) UpdateState(c context.Context, id string, status, login_hint string) error {
 	start := time.Now()
 	log := mlog.L(c)
 	ctx, cancel := context.WithTimeout(c, 15*time.Second)
@@ -153,7 +149,7 @@ func (r *SessionCodeRepository) UpdateState(c context.Context, id string, state,
 	filter := bson.M{"client_id": id}
 	update := bson.M{
 		"$set": bson.M{
-			"state":      state,
+			"status":     status,
 			"updated_at": time.Now(),
 		},
 	}

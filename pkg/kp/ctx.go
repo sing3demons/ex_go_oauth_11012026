@@ -413,13 +413,13 @@ func (c *Ctx) JSON(code int, v any, masking ...logger.MaskingRule) {
 }
 func (c *Ctx) Redirect(urlStr string) {
 	fullUrl := urlStr
-	location, err := url.Parse(urlStr)
-	if err == nil {
-		q := location.Query()
-		q.Add("sid", c.Log.SessionID())
-		location.RawQuery = q.Encode()
-		fullUrl = location.String()
-	}
+	// location, err := url.Parse(urlStr)
+	// if err == nil {
+	// 	q := location.Query()
+	// 	q.Add("sid", c.Log.SessionID())
+	// 	location.RawQuery = q.Encode()
+	// 	fullUrl = location.String()
+	// }
 	http.Redirect(c.Res, c.Req, fullUrl, http.StatusFound)
 	c.Log.Info(logAction.OUTBOUND("server redirect to client"), map[string]any{
 		"status":  http.StatusFound,
