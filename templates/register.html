@@ -152,7 +152,7 @@
         <button type="submit" class="btn">ลงทะเบียน</button>
       </form>
 
-      <div class="login-link">มีบัญชีอยู่แล้ว? <a href="/oauth/login">เข้าสู่ระบบ</a></div>
+      <div class="login-link">มีบัญชีอยู่แล้ว? <a href="/oauth/login?client_id={{.ClientID}}&state={{.State}}&redirect_uri={{.RedirectURI}}&sid={{.SessionID}}">เข้าสู่ระบบ</a></div>
     </div>
 
     <script>
@@ -182,11 +182,26 @@
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              Accept: 'application/json',
             },
             body: JSON.stringify(data),
           })
 
-          const result = await response.json()
+          // If backend already redirected (3xx), follow it immediately
+          if (response.redirected && response.url) {
+            window.location.replace(response.url)
+            return
+          }
+
+          const contentType = response.headers.get('content-type') || ''
+          let result = null
+
+          if (contentType.includes('application/json')) {
+            result = await response.json()
+          } else {
+            const text = await response.text()
+            result = { error_description: text }
+          }
 
           if (response.ok) {
             successDiv.textContent = 'ลงทะเบียนสำเร็จ! กำลังเข้าสู่ระบบ...'
@@ -194,14 +209,14 @@
 
             // Redirect after 1 second
             setTimeout(() => {
-              if (result.redirect_uri) {
-                window.location.href = result.redirect_uri
+              if (result && result.redirect_uri) {
+                window.location.replace(result.redirect_uri)
               } else {
-                window.location.href = `/oauth/login?${queryParams}`
+                window.location.replace(`/oauth/login?${queryParams}`)
               }
             }, 1000)
           } else {
-            errorDiv.textContent = result.error_description || 'ลงทะเบียนไม่สำเร็จ'
+            errorDiv.textContent = result.error_description || result.error || 'ลงทะเบียนไม่สำเร็จ'
             errorDiv.classList.add('show')
           }
         } catch (error) {

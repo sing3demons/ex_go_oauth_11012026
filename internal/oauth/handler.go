@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/sing3demons/oauth/kp/internal/client"
@@ -74,7 +73,7 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 		}
 
 		// decrypt request object
-		data, err := h.oauthService.Decrypt(ctx.Context(), clientModel.TokenEndpointAuthMethod, authorizeRequest.Request)
+		data, err := h.oauthService.Decrypt(ctx.Context(), clientModel.IDTokenAlg, authorizeRequest.Request)
 		if err != nil {
 			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request_object"}, err)
 			return
@@ -209,25 +208,26 @@ func (h *AuthHandler) Login(ctx *kp.Ctx) {
 	request, err := h.oauthService.Login(ctx.Context(), body, sessionCode.IDTokenAlg) // not_found go to register
 	if err != nil {
 		if err.Error() == "not_found" {
-			// ctx.Render("register", map[string]any{
-			// 	"SessionID":   sessionId,
-			// 	"ClientID":    authorizeRequest.ClientID,
-			// 	"State":       authorizeRequest.State,
-			// 	"RedirectURI": authorizeRequest.RedirectURI,
-			// })
-			uri, err := url.Parse(ctx.Cfg.BaseURL)
-			if err != nil {
-				ctx.JSONError(http.StatusInternalServerError, map[string]string{"error": "server_error"}, err)
-				return
-			}
-			uri.Path = "/oauth/register"
-			q := uri.Query()
-			q.Set("client_id", authorizeRequest.ClientID)
-			q.Set("state", authorizeRequest.State)
-			q.Set("redirect_uri", authorizeRequest.RedirectURI)
-			uri.RawQuery = q.Encode()
+			ctx.Render("register", map[string]any{
+				"SessionID":   sessionId,
+				"ClientID":    authorizeRequest.ClientID,
+				"State":       authorizeRequest.State,
+				"RedirectURI": authorizeRequest.RedirectURI,
+			})
+			// uri, err := url.Parse(ctx.Cfg.BaseURL)
+			// if err != nil {
+			// 	ctx.JSONError(http.StatusInternalServerError, map[string]string{"error": "server_error"}, err)
+			// 	return
+			// }
+			// uri.Path = "/oauth/register"
+			// q := uri.Query()
+			// q.Set("client_id", authorizeRequest.ClientID)
+			// q.Set("state", authorizeRequest.State)
+			// q.Set("redirect_uri", authorizeRequest.RedirectURI)
+			// q.Set("sid", sessionId)
+			// uri.RawQuery = q.Encode()
 
-			ctx.Redirect(uri.String())
+			// ctx.Redirect(uri.String())
 			return
 		}
 
