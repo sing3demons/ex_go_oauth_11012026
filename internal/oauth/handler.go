@@ -208,26 +208,15 @@ func (h *AuthHandler) Login(ctx *kp.Ctx) {
 	request, err := h.oauthService.Login(ctx.Context(), body, sessionCode.IDTokenAlg) // not_found go to register
 	if err != nil {
 		if err.Error() == "not_found" {
-			ctx.Render("register", map[string]any{
-				"SessionID":   sessionId,
-				"ClientID":    authorizeRequest.ClientID,
-				"State":       authorizeRequest.State,
-				"RedirectURI": authorizeRequest.RedirectURI,
-			})
-			// uri, err := url.Parse(ctx.Cfg.BaseURL)
-			// if err != nil {
-			// 	ctx.JSONError(http.StatusInternalServerError, map[string]string{"error": "server_error"}, err)
-			// 	return
-			// }
-			// uri.Path = "/oauth/register"
-			// q := uri.Query()
-			// q.Set("client_id", authorizeRequest.ClientID)
-			// q.Set("state", authorizeRequest.State)
-			// q.Set("redirect_uri", authorizeRequest.RedirectURI)
-			// q.Set("sid", sessionId)
-			// uri.RawQuery = q.Encode()
+			// Send redirect to register page with all OAuth params
+			registerURL := "/oauth/register?client_id=" + authorizeRequest.ClientID +
+				"&state=" + authorizeRequest.State +
+				"&redirect_uri=" + authorizeRequest.RedirectURI +
+				"&sid=" + sessionId
 
-			// ctx.Redirect(uri.String())
+			ctx.JSON(http.StatusOK, map[string]string{
+				"redirect_uri": registerURL,
+			})
 			return
 		}
 
@@ -263,6 +252,7 @@ func (h *AuthHandler) Register(ctx *kp.Ctx) {
 	}
 
 	body.Update(authorizeRequest.ClientID, authorizeRequest.RedirectURI, authorizeRequest.Scope, authorizeRequest.State)
+	body.SessionID = sessionId
 
 	// check user credentials here
 	request, err := h.oauthService.RegisterUser(ctx.Context(), body, sessionCode.IDTokenAlg) // not_found go to register

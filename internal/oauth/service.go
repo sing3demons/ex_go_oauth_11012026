@@ -172,6 +172,7 @@ func (s *OAuthService) RegisterUser(ctx context.Context, body RegisterRequest, a
 	}
 
 	loginRequest.Update(body.ClientID, body.RedirectURI, body.Scope, body.State)
+	loginRequest.SessionID = body.SessionID
 
 	return s.Login(ctx, loginRequest, alg)
 }

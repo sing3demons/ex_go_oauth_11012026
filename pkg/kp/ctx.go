@@ -412,23 +412,55 @@ func (c *Ctx) JSON(code int, v any, masking ...logger.MaskingRule) {
 	c.Log.Flush(code, c.statusMessage(code))
 }
 func (c *Ctx) Redirect(urlStr string) {
-	fullUrl := urlStr
-	// location, err := url.Parse(urlStr)
-	// if err == nil {
-	// 	q := location.Query()
-	// 	q.Add("sid", c.Log.SessionID())
-	// 	location.RawQuery = q.Encode()
-	// 	fullUrl = location.String()
-	// }
-	http.Redirect(c.Res, c.Req, fullUrl, http.StatusFound)
+	http.Redirect(c.Res, c.Req, urlStr, http.StatusFound)
 	c.Log.Info(logAction.OUTBOUND("server redirect to client"), map[string]any{
 		"status":  http.StatusFound,
 		"headers": c.Res.Header(),
-		"url":     fullUrl,
+		"url":     urlStr,
 	})
 
 	msg := fmt.Sprintf("redirect to %s", urlStr)
 	c.Log.Flush(http.StatusFound, msg)
+}
+
+func (c *Ctx) RedirectWithError(rawURL string, code int, v any, err error) {
+	c.Res.Header().Set("x-session-id", c.Log.SessionID())
+
+	location, pErr := url.Parse(rawURL)
+	if pErr != nil {
+		c.Res.Header().Set("Content-Type", "application/json")
+		c.Res.WriteHeader(http.StatusInternalServerError)
+
+		json.NewEncoder(c.Res).Encode(map[string]any{
+			"error": err.Error(),
+		})
+		c.Log.Error(logAction.OUTBOUND("server render to client"), map[string]any{
+			"status":  http.StatusInternalServerError,
+			"headers": c.Res.Header(),
+			"error":   err.Error(),
+		})
+		c.Log.FlushError(http.StatusInternalServerError, pErr.Error())
+		return
+	}
+	query := location.Query()
+	dataMap, ok := v.(map[string]string)
+	if ok {
+		for key, value := range dataMap {
+			if key == "error" {
+				query.Set(key, value)
+			}
+		}
+		location.RawQuery = query.Encode()
+	}
+
+	http.Redirect(c.Res, c.Req, location.String(), http.StatusFound)
+	c.Log.Error(logAction.OUTBOUND("server render to client"), map[string]any{
+		"status":  http.StatusInternalServerError,
+		"headers": c.Res.Header(),
+		"body":    v,
+	})
+	c.Log.FlushError(http.StatusInternalServerError, "redirect to "+location.String())
+
 }
 
 func (c *Ctx) Render(path string, data map[string]any) {
@@ -443,8 +475,27 @@ func (c *Ctx) Render(path string, data map[string]any) {
 	}
 
 	if _, err := os.Stat(templates); errors.Is(err, os.ErrNotExist) {
+		// redirect_uri
+		if v, ok := data["redirect_uri"]; ok {
+			redirectURI, ok := v.(string)
+			if ok && redirectURI != "" {
+				http.Redirect(c.Res, c.Req, redirectURI, http.StatusFound)
+				c.Log.Error(logAction.OUTBOUND("server render to client"), map[string]any{
+					"status":  http.StatusInternalServerError,
+					"headers": c.Res.Header(),
+					"error":   "template file not found",
+				})
+				c.Log.FlushError(http.StatusInternalServerError, "template file not found")
+				return
+			}
+		}
+
+		c.Res.Header().Set("Content-Type", "application/json")
 		c.Res.WriteHeader(http.StatusInternalServerError)
-		c.Res.Write([]byte("template file not found"))
+
+		json.NewEncoder(c.Res).Encode(map[string]any{
+			"error": "template file not found",
+		})
 		c.Log.Error(logAction.OUTBOUND("server render to client"), map[string]any{
 			"status":  http.StatusInternalServerError,
 			"headers": c.Res.Header(),
@@ -456,8 +507,25 @@ func (c *Ctx) Render(path string, data map[string]any) {
 
 	tmpl, err := template.ParseFiles(templates)
 	if err != nil {
+		// redirect_uri
+		if v, ok := data["redirect_uri"]; ok {
+			redirectURI, ok := v.(string)
+			if ok && redirectURI != "" {
+				http.Redirect(c.Res, c.Req, redirectURI, http.StatusFound)
+				c.Log.Error(logAction.OUTBOUND("server render to client"), map[string]any{
+					"status":  http.StatusInternalServerError,
+					"headers": c.Res.Header(),
+					"error":   "template file not found",
+				})
+				c.Log.FlushError(http.StatusInternalServerError, "template file not found")
+				return
+			}
+		}
+		c.Res.Header().Set("Content-Type", "application/json")
 		c.Res.WriteHeader(http.StatusInternalServerError)
-		c.Res.Write([]byte("failed to parse template"))
+		json.NewEncoder(c.Res).Encode(map[string]any{
+			"error": "template file not found",
+		})
 		c.Log.Error(logAction.OUTBOUND("server render to client"), map[string]any{
 			"status": http.StatusInternalServerError,
 			"error":  err.Error(),
@@ -468,8 +536,26 @@ func (c *Ctx) Render(path string, data map[string]any) {
 
 	// Execute template to buffer first to catch errors before writing headers
 	if err := tmpl.Execute(c.Res, data); err != nil {
+		// redirect_uri
+		if v, ok := data["redirect_uri"]; ok {
+			redirectURI, ok := v.(string)
+			if ok && redirectURI != "" {
+				http.Redirect(c.Res, c.Req, redirectURI, http.StatusFound)
+				c.Log.Error(logAction.OUTBOUND("server render to client"), map[string]any{
+					"status":  http.StatusInternalServerError,
+					"headers": c.Res.Header(),
+					"error":   "template file not found",
+				})
+				c.Log.FlushError(http.StatusInternalServerError, "template file not found")
+				return
+			}
+		}
+
+		c.Res.Header().Set("Content-Type", "application/json")
 		c.Res.WriteHeader(http.StatusInternalServerError)
-		c.Res.Write([]byte("failed to render template"))
+		json.NewEncoder(c.Res).Encode(map[string]any{
+			"error": "template file not found",
+		})
 		c.Log.Error(logAction.OUTBOUND("server render to client"), map[string]any{
 			"status": http.StatusInternalServerError,
 			"error":  err.Error(),

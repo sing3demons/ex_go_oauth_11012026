@@ -256,7 +256,7 @@ type AuthCode struct {
 
 type AuthorizationCode struct {
 	ID         string `json:"id" bson:"_id,omitempty"`
-	AuthCodeId string `json:"authcode_id" bson:"authcode_id"`
+	AuthCodeId string `json:"auth_code_id" bson:"auth_code_id"`
 	Used       bool   `json:"used" bson:"used"`
 
 	// Issue time.Time `bson:"iss" json:"-"` // baseURL

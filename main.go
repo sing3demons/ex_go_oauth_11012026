@@ -15,7 +15,6 @@ import (
 	"github.com/sing3demons/oauth/kp/internal/session"
 	"github.com/sing3demons/oauth/kp/internal/user"
 	"github.com/sing3demons/oauth/kp/pkg/kp"
-	"github.com/sing3demons/oauth/kp/pkg/logAction"
 	"github.com/sing3demons/oauth/kp/pkg/logger"
 )
 
@@ -54,33 +53,19 @@ func main() {
 	app := kp.NewMicroservice(cfg)
 	app.GET("/oauth/register", func(ctx *kp.Ctx) {
 		ctx.L("render_register_page")
-		// ctx.Render("register", map[string]any{
-		// 		"SessionID":   sessionId,
-		// 		"ClientID":    authorizeRequest.ClientID,
-		// 		"State":       authorizeRequest.State,
-		// 		"RedirectURI": authorizeRequest.RedirectURI,
-		// 	})
-		sessionID := ctx.Req.URL.Query().Get("sid")
-		if sessionID == "" {
-			sessionID = ctx.Req.URL.Query().Get("SessionID")
-		}
-		ClientID := ctx.Req.URL.Query().Get("client_id")
-		State := ctx.Req.URL.Query().Get("state")
-		RedirectURI := ctx.Req.URL.Query().Get("redirect_uri")
 
-		data := map[string]any{
-			"SessionID":   sessionID,
-			"ClientID":    ClientID,
-			"State":       State,
-			"RedirectURI": RedirectURI,
+		authorizeRequest := oauth.AuthorizeRequest{}
+		if err := ctx.BindQuery(&authorizeRequest); err != nil {
+			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+			return
 		}
-		ctx.Render("register", data)
-		ctx.Log.Info(logAction.OUTBOUND("server render to client"), map[string]any{
-			"status":  http.StatusOK,
-			"headers": ctx.Res.Header(),
-			"body":    data,
+
+		ctx.Render("register", map[string]any{
+			"SessionID":   authorizeRequest.SessionID,
+			"ClientID":    authorizeRequest.ClientID,
+			"State":       authorizeRequest.State,
+			"RedirectURI": authorizeRequest.RedirectURI,
 		})
-		ctx.Log.Flush(http.StatusOK, "success")
 	})
 
 	app.GET("/oauth/authorize", authHandler.AuthorizeHandler)
