@@ -28,7 +28,6 @@ func NewAuthHandler(cfg *config.AppConfig, clientService *client.ClientService, 
 func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 	ctx.L("authorize")
 	sessionId := ctx.SessionID()
-	// /oauth/authorize?response_type=code&client_id=cd4e7670-5e96-4a3f-addb-51fa43db86fc&redirect_uri=http://localhost/callback&scope=openid%20profile&state=xyz&code_challenge=abc&code_challenge_method=S256
 
 	// parse query params
 	authorizeRequest := AuthorizeRequest{}
