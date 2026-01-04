@@ -117,7 +117,8 @@ func (r *SessionCodeRepository) DeleteByID(c context.Context, id string) error {
 	ctx, cancel := context.WithTimeout(c, 15*time.Second)
 	defer cancel()
 
-	filter := bson.M{"client_id": id}
+	// session documents are keyed by _id (session id)
+	filter := bson.M{"_id": id}
 
 	raw := query.GenerateDeleteQuery(r.collection.Name(), filter)
 	log.SetDependencyMetadata(logger.DependencyMetadata{
@@ -146,7 +147,8 @@ func (r *SessionCodeRepository) UpdateState(c context.Context, id string, status
 	ctx, cancel := context.WithTimeout(c, 15*time.Second)
 	defer cancel()
 
-	filter := bson.M{"client_id": id}
+	// update by session id (_id)
+	filter := bson.M{"_id": id}
 	update := bson.M{
 		"$set": bson.M{
 			"status":     status,

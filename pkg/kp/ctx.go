@@ -497,7 +497,16 @@ func (c *Ctx) JSONError(code int, v any, err error) {
 		"headers": c.Res.Header(),
 		"body":    v,
 	})
-	c.Log.AddMetadata("ErrorCode", err.Error())
+
+	// err may be nil in some call sites; avoid panic on err.Error()
+	if err != nil {
+		c.Log.AddMetadata("ErrorCode", err.Error())
+		c.Log.FlushError(code, c.statusMessage(code))
+		return
+	}
+
+	// Fallback when no error object provided
+	c.Log.AddMetadata("ErrorCode", "unknown")
 	c.Log.FlushError(code, c.statusMessage(code))
 }
 func (c *Ctx) statusMessage(code int) string {

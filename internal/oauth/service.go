@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 
@@ -32,16 +33,16 @@ func NewOAuthService(sessionRepository session.ISessionCodeRepository, userRepos
 // Add OAuth related business logic methods here
 func (s *OAuthService) CreateSessionCode(ctx context.Context, sid, method string, data AuthorizeRequest) error {
 	return s.sessionRepository.Create(ctx, &session.SessionCode{
-		ID:                      sid,
-		ClientID:                data.ClientID,
-		RedirectURI:             data.RedirectURI,
-		Scope:                   data.Scope,
-		State:                   data.State,
-		LoginHint:               data.LoginHint,
-		Nonce:                   data.Nonce,
-		CodeChallenge:           data.CodeChallenge,
-		CodeChallengeMethod:     data.CodeChallengeMethod,
-		IDTokenAlg:              method,
+		ID:                  sid,
+		ClientID:            data.ClientID,
+		RedirectURI:         data.RedirectURI,
+		Scope:               data.Scope,
+		State:               data.State,
+		LoginHint:           data.LoginHint,
+		Nonce:               data.Nonce,
+		CodeChallenge:       data.CodeChallenge,
+		CodeChallengeMethod: data.CodeChallengeMethod,
+		IDTokenAlg:          method,
 	})
 }
 
@@ -100,7 +101,8 @@ func (s *OAuthService) Encrypt(ctx context.Context, alg, data string) (string, e
 		return "", fmt.Errorf("encryption failed: %v", err)
 	}
 
-	return string(cipherText), nil
+	// encode for safe transport via URL/query
+	return base64.StdEncoding.EncodeToString(cipherText), nil
 }
 
 func (s *OAuthService) Decrypt(ctx context.Context, alg, cipherText string) (string, error) {
@@ -119,7 +121,12 @@ func (s *OAuthService) Decrypt(ctx context.Context, alg, cipherText string) (str
 		return "", fmt.Errorf("failed to parse DER encoded private key: %v", err)
 	}
 
-	plaintext, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, []byte(cipherText))
+	decoded, err := base64.StdEncoding.DecodeString(cipherText)
+	if err != nil {
+		return "", fmt.Errorf("base64 decode failed: %v", err)
+	}
+
+	plaintext, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, decoded)
 	if err != nil {
 		return "", fmt.Errorf("decryption failed: %v", err)
 	}
