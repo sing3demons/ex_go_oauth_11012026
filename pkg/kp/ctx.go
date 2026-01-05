@@ -50,9 +50,25 @@ type Ctx struct {
 	Res      http.ResponseWriter
 	Req      *http.Request
 	Cfg      *config.AppConfig
-	Log      *logger.Logger
+	Log      logger.ILogger
 	validate *validator.Validate
 }
+
+// context.Context interface methods
+func (c *Ctx) Done() <-chan struct{} {
+	return c.Context().Done()
+}
+func (c *Ctx) Err() error {
+	return c.Context().Err()
+}
+func (c *Ctx) Deadline() (time.Time, bool) {
+	return c.Context().Deadline()
+}
+func (c *Ctx) Value(key any) any {
+	return c.Context().Value(key)
+}
+
+//
 
 // NewTransactionID generates or retrieves a transaction ID with proper priority:
 // 1. Existing context value (already set)
@@ -204,7 +220,8 @@ func newMuxContext(w http.ResponseWriter, r *http.Request, cfg *config.AppConfig
 }
 func (c *Ctx) Context() context.Context {
 	if c.Req == nil {
-		return context.Background()
+		ctx := context.Background()
+		return ctx
 	}
 
 	return c.Req.Context()
@@ -337,7 +354,7 @@ func (c *Ctx) BindQuery(v any) error {
 	return nil
 }
 
-func (c *Ctx) L(userCase string, masking ...logger.MaskingRule) *logger.Logger {
+func (c *Ctx) L(userCase string, masking ...logger.MaskingRule) logger.ILogger {
 	c.Log.SetUseCase(userCase)
 	c.SessionID()
 	body := make(map[string]any)

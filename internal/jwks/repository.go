@@ -28,6 +28,7 @@ import (
 
 type ISigningKeyRepository interface {
 	// Find() ([]SigningKey, error)
+	FindKeyOidcByAlgorithm(ctx context.Context) ([]SigningKey, error)
 	FindByAlgorithm(ctx context.Context, alg string) (SigningKey, error)
 	LoadActiveKeyByAlgorithm() ([]SigningKey, error)
 	// DeactivateKeyByKID(kid string) error
@@ -288,6 +289,130 @@ func (j *SigningKeyRepository) LoadActiveKeyByAlgorithm() ([]SigningKey, error) 
 			keys = append(keys, newKey)
 		}
 	}
+
+	return keys, nil
+}
+
+func (j *SigningKeyRepository) FindKeyOidcByAlgorithm(c context.Context) ([]SigningKey, error) {
+	if len(j.algorithms) == 0 {
+		return nil, errors.New("no algorithms specified")
+	}
+
+	start := time.Now()
+	log := mlog.L(c)
+
+	cacheKey := "signing_keys_oidc"
+	val, err := j.cache.Get(c, cacheKey)
+	if err == nil && val != "" {
+		var keys []SigningKey
+		err = json.Unmarshal([]byte(val), &keys)
+		if err == nil && len(keys) == len(j.algorithms) {
+			return keys, nil
+		} else {
+			j.cache.Del(c, cacheKey)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(c, 15*time.Second)
+	defer cancel()
+
+	filter := bson.M{
+		"algorithm": bson.M{"$in": j.algorithms},
+		"active":    true,
+	}
+	raw := query.GenerateFindQuery(j.collection.Name(), filter)
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency: j.collection.Name(),
+	}).Debug(logAction.DB_REQUEST(logAction.DB_READ, raw), filter)
+	cursor, err := j.collection.Find(ctx, filter)
+
+	elapsedMs := time.Since(start).Milliseconds()
+	if err != nil {
+		log.SetDependencyMetadata(logger.DependencyMetadata{
+			Dependency:   j.collection.Name(),
+			ResponseTime: elapsedMs,
+		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), map[string]any{
+			"error": err.Error(),
+		})
+		return nil, err
+	}
+
+	defer cursor.Close(ctx)
+
+	var keys []SigningKey
+	for cursor.Next(ctx) {
+		key := SigningKey{}
+		if err := cursor.Decode(&key); err != nil {
+			log.AddMetadata("error", err.Error())
+			continue
+		}
+
+		j.UpdateSigningKey(c, 10, key)
+
+		keys = append(keys, key)
+	}
+
+	for _, alg := range j.algorithms {
+		found := false
+		for _, key := range keys {
+			if string(key.Algorithm) == alg {
+				found = true
+				break
+			}
+		}
+		if !found {
+			// Generate new key pair
+			privateKey, publicKey, err := j.generateKeyPair(alg)
+			if err != nil {
+				return nil, err
+			}
+
+			kid := j.generateKID(alg, publicKey)
+
+			now := time.Now()
+			expires := now.Add(j.expiresAt)
+			newKey := SigningKey{
+				KID:        kid,
+				Algorithm:  JWTAlgorithm(alg),
+				PrivateKey: privateKey,
+				PublicKey:  publicKey,
+				Active:     true,
+				CreatedAt:  now,
+				ExpiresAt:  &expires,
+			}
+
+			s := time.Now()
+			raw := query.GenerateInsertQuery(j.collection.Name(), newKey)
+			log.SetDependencyMetadata(logger.DependencyMetadata{
+				Dependency: j.collection.Name(),
+			}).Debug(logAction.DB_REQUEST(logAction.DB_CREATE, raw), newKey)
+
+			result, err := j.collection.InsertOne(ctx, newKey)
+			elapsedInsertMs := time.Since(s).Milliseconds()
+			if err != nil {
+				log.SetDependencyMetadata(logger.DependencyMetadata{
+					Dependency:   j.collection.Name(),
+					ResponseTime: elapsedInsertMs,
+				}).Debug(logAction.DB_RESPONSE(logAction.DB_CREATE, "mongo response"), map[string]any{
+					"error": err.Error(),
+				})
+				return nil, err
+			}
+
+			log.SetDependencyMetadata(logger.DependencyMetadata{
+				Dependency:   j.collection.Name(),
+				ResponseTime: elapsedInsertMs,
+			}).Debug(logAction.DB_RESPONSE(logAction.DB_CREATE, "mongo response"), map[string]any{
+				"data": result,
+			})
+
+			keys = append(keys, newKey)
+		}
+	}
+
+	// cache the keys
+	exp := 30 * time.Minute
+	j.cache.Set(c, cacheKey, keys, exp)
 
 	return keys, nil
 }

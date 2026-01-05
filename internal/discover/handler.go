@@ -26,7 +26,7 @@ func (h *DiscoverHandler) JwksHandler(ctx *kp.Ctx) {
 	// /.well-known/jwks.json
 	ctx.L("get_jwks")
 	// response := mlog.NewResponseWithLogger(w, r, "get_jwks", uuid.NewString())
-	jwks, err := h.jwksService.GetJWKS()
+	jwks, err := h.jwksService.GetJWKS(ctx)
 	if err != nil {
 		ctx.JSONError(http.StatusInternalServerError, map[string]string{
 			"error": "server_error",

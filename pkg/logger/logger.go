@@ -3,6 +3,7 @@ package logger
 import (
 	"bufio"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,10 +31,12 @@ const (
 )
 
 type LogType string
+type CtxKey string
 
 const (
 	TypeDetail  LogType = "detail"
 	TypeSummary LogType = "summary"
+	LoggerKey   CtxKey  = "logger"
 )
 
 type DetailLog struct {
@@ -106,13 +109,28 @@ type Logger struct {
 	writersMu     sync.RWMutex
 }
 
-type ActionInfo struct {
-	Action            string
-	ActionDescription string
-	SubAction         string
+type ILogger interface {
+	SetSessionID(sessionID string)
+	SetTransactionID(transactionID string)
+	SetUseCase(useCase string)
+	Close() error
+
+	Info(action logAction.LoggerAction, data any, maskingRules ...MaskingRule)
+	Debug(action logAction.LoggerAction, data any, maskingRules ...MaskingRule)
+	Warn(action logAction.LoggerAction, data any, maskingRules ...MaskingRule)
+	Error(action logAction.LoggerAction, data any, maskingRules ...MaskingRule)
+
+	Flush(statusCode int, message string)
+	FlushError(statusCode int, message string)
+
+	AddMetadata(key string, value any)
+	SetDependencyMetadata(metadata DependencyMetadata) ILogger
+	SessionID() string
+	TransactionID() string
+	LogWithContext(ctx context.Context) ILogger
 }
 
-func NewLogger(service, version string) *Logger {
+func NewLogger(service, version string) ILogger {
 	return &Logger{
 		service:     service,
 		version:     version,
@@ -124,7 +142,7 @@ func NewLogger(service, version string) *Logger {
 	}
 }
 
-func NewLoggerWithConfig(service, version string, config *configs.LoggerConfig) *Logger {
+func NewLoggerWithConfig(service, version string, config *configs.LoggerConfig) ILogger {
 	// Ensure rotation config has defaults if not set
 	if config.Rotation.MaxSize == 0 {
 		config.Rotation = configs.DefaultRotationConfig()
@@ -138,6 +156,18 @@ func NewLoggerWithConfig(service, version string, config *configs.LoggerConfig) 
 		metadata:    make(map[string]any),
 		fileWriters: make(map[string]*fileWriter),
 	}
+}
+
+func (l *Logger) LogWithContext(ctx context.Context) ILogger {
+	if ctx == nil {
+		return NewLogger("", "")
+	}
+	logger, ok := ctx.Value(LoggerKey).(ILogger)
+	if !ok || logger == nil {
+		return NewLogger("", "")
+	}
+
+	return logger
 }
 
 func (l *Logger) SetSessionID(sessionID string) {
@@ -433,11 +463,6 @@ func (l *Logger) FlushBuffers() {
 	}
 }
 
-func (l *Logger) writeToFile(basePath, timestamp string, data []byte) {
-	// Deprecated: use writeToFileBuffered instead
-	l.writeToFileBuffered(basePath, timestamp, data)
-}
-
 // Detail logs detailed information with optional data masking
 func (l *Logger) Detail(level LogLevel, actionInfo logAction.LoggerAction, data any, maskingRules ...MaskingRule) {
 	var maskedData any
@@ -636,7 +661,7 @@ func (l *Logger) AddMetadata(key string, value any) {
 	l.metadata[key] = value
 }
 
-func (l *Logger) SetDependencyMetadata(metadata DependencyMetadata) *Logger {
+func (l *Logger) SetDependencyMetadata(metadata DependencyMetadata) ILogger {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if metadata.Dependency != "" {

@@ -7,20 +7,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/sing3demons/oauth/kp/pkg/logAction"
 	"github.com/sing3demons/oauth/kp/pkg/logger"
 )
 
-func L(ctx context.Context) *logger.Logger {
+func L(ctx context.Context) logger.ILogger {
 	if ctx == nil {
 		return logger.NewLogger("", "")
 	}
-	l, ok := ctx.Value("logger").(*logger.Logger)
+	l, ok := ctx.Value(logger.LoggerKey).(logger.ILogger)
 	if !ok || l == nil {
 		return logger.NewLogger("", "")
 	}
@@ -31,83 +29,10 @@ func L(ctx context.Context) *logger.Logger {
 type ResponseWithLogger struct {
 	w      http.ResponseWriter
 	r      *http.Request
-	logger *logger.Logger
+	logger logger.ILogger
 }
 
-func NewResponseWithLogger(w http.ResponseWriter, r *http.Request, userCase, xSid string, masking ...logger.MaskingRule) *ResponseWithLogger {
-	if xSid == "" {
-		xSid = uuid.NewString()
-	}
-	rwl := &ResponseWithLogger{
-		w:      w,
-		r:      r,
-		logger: InitLog(r, userCase, xSid, masking...),
-	}
-
-	return rwl
-}
-
-func StatusMessage(status int) string {
-	msg := http.StatusText(status)
-	if msg == "" {
-		return "unknown_status"
-	}
-	return strings.ToLower(strings.ReplaceAll(msg, " ", "_"))
-}
-
-func (rwl *ResponseWithLogger) ResponseJson(status int, data any, masking ...logger.MaskingRule) {
-	rwl.w.Header().Set("Content-Type", "application/json")
-	rwl.w.Header().Set("x-session-id", rwl.logger.SessionID())
-	rwl.w.WriteHeader(status)
-	json.NewEncoder(rwl.w).Encode(data)
-
-	rwl.logger.Info(logAction.OUTBOUND("server response to client"), map[string]any{
-		"status":  status,
-		"headers": rwl.w.Header(),
-		"body":    data,
-	}, masking...)
-
-	rwl.logger.Flush(status, StatusMessage(status))
-}
-
-func (rwl *ResponseWithLogger) Redirect(urlStr string) {
-	fullUrl := urlStr
-	location, err := url.Parse(urlStr)
-	if err == nil {
-		q := location.Query()
-		q.Add("sid", rwl.logger.SessionID())
-		location.RawQuery = q.Encode()
-		fullUrl = location.String()
-	}
-	http.Redirect(rwl.w, rwl.r, fullUrl, http.StatusFound)
-
-	rwl.logger.Info(logAction.OUTBOUND("server redirect to client"), map[string]any{
-		"status":  http.StatusFound,
-		"headers": rwl.w.Header(),
-		"url":     fullUrl,
-	})
-
-	msg := fmt.Sprintf("redirect to %s", urlStr)
-	rwl.logger.Flush(http.StatusFound, msg)
-}
-
-func (rwl *ResponseWithLogger) ResponseJsonError(status int, data any, err error) {
-	rwl.w.Header().Set("Content-Type", "application/json")
-	rwl.w.WriteHeader(status)
-	json.NewEncoder(rwl.w).Encode(data)
-
-	rwl.logger.Info(logAction.OUTBOUND("server response to client"), map[string]any{
-		"status":  status,
-		"headers": rwl.w.Header(),
-		"body":    data,
-	})
-
-	rwl.logger.AddMetadata("ErrorCode", err.Error())
-
-	rwl.logger.FlushError(status, StatusMessage(status))
-}
-
-func InitLog(r *http.Request, userCase, xSid string, masking ...logger.MaskingRule) *logger.Logger {
+func InitLog(r *http.Request, userCase, xSid string, masking ...logger.MaskingRule) logger.ILogger {
 	l := L(r.Context())
 	l.SetSessionID(xSid)
 	l.SetUseCase(userCase)

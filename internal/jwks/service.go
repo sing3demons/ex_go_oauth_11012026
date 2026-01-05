@@ -30,8 +30,8 @@ func NewJWTService(cfg *config.AppConfig, repo ISigningKeyRepository) *JWTServic
 	}
 }
 
-func (s *JWTService) GetJWKS() (JWKS, error) {
-	sk, err := s.repo.LoadActiveKeyByAlgorithm()
+func (s *JWTService) GetJWKS(c context.Context) (JWKS, error) {
+	sk, err := s.repo.FindKeyOidcByAlgorithm(c)
 	if err != nil {
 		return JWKS{}, err
 	}
