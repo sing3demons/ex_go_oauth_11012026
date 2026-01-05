@@ -32,7 +32,7 @@ func (h *ClientHandler) CreateClientHandler(ctx *kp.Ctx) {
 		return
 	}
 
-	if err := h.service.CreateClient(ctx.Context(), &body); err != nil {
+	if err := h.service.CreateClient(ctx, &body); err != nil {
 		ctx.JSONError(http.StatusInternalServerError, "internal_server_error", err)
 		return
 	}
@@ -47,7 +47,7 @@ func (h *ClientHandler) GetClientHandler(ctx *kp.Ctx) {
 	ctx.L("get_client")
 	id := ctx.Params("id")
 	fmt.Println("Getting client with ID:", id)
-	client, err := h.service.GetClientByID(ctx.Context(), id)
+	client, err := h.service.GetClientByID(ctx, id)
 	if err != nil {
 		ctx.JSONError(http.StatusNotFound, "client_not_found", err)
 		return

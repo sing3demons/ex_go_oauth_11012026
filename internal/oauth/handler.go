@@ -37,7 +37,7 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 	}
 
 	// check client existence
-	clientModel, err := h.clientService.GetClientByID(ctx.Context(), authorizeRequest.ClientID)
+	clientModel, err := h.clientService.GetClientByID(ctx, authorizeRequest.ClientID)
 	if err != nil {
 		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_client"}, err)
 		return
@@ -55,7 +55,7 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 	}
 
 	if authorizeRequest.Request != "" {
-		sessionCode, err := h.oauthService.GetSessionCodeByID(ctx.Context(), sessionId)
+		sessionCode, err := h.oauthService.GetSessionCodeByID(ctx, sessionId)
 		if err != nil || sessionCode == nil {
 			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_session"}, err)
 			return
@@ -72,7 +72,7 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 		}
 
 		// decrypt request object
-		data, err := h.oauthService.Decrypt(ctx.Context(), clientModel.IDTokenAlg, authorizeRequest.Request)
+		data, err := h.oauthService.Decrypt(ctx, clientModel.IDTokenAlg, authorizeRequest.Request)
 		if err != nil {
 			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request_object"}, err)
 			return
@@ -95,7 +95,7 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 		}
 		userID := parts[2]
 		// findUserByID
-		userModel, err := h.oauthService.userRepository.FindUserByUsername(ctx.Context(), username)
+		userModel, err := h.oauthService.userRepository.FindUserByUsername(ctx, username)
 		if err != nil || userModel.ID != userID {
 			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_user"}, err)
 			return
@@ -115,7 +115,7 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 		}
 
 		// generate authorization code and redirect
-		authCodeId, err := h.oauthService.GenerateAuthorizationCode(ctx.Context(), &AuthCode{
+		authCodeId, err := h.oauthService.GenerateAuthorizationCode(ctx, &AuthCode{
 			ClientID:            sessionCode.ClientID,
 			SessionID:           sessionId,
 			TID:                 ctx.TransactionID(),
@@ -160,7 +160,7 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 	if authorizeRequest.LoginHint != "" {
 	}
 
-	if err := h.oauthService.CreateSessionCode(ctx.Context(), sessionId, clientModel.IDTokenAlg, authorizeRequest); err != nil {
+	if err := h.oauthService.CreateSessionCode(ctx, sessionId, clientModel.IDTokenAlg, authorizeRequest); err != nil {
 		if err.Error() != "duplicate" {
 			ctx.JSONError(http.StatusInternalServerError, map[string]string{"error": "server_error"}, err)
 			return
@@ -194,7 +194,7 @@ func (h *AuthHandler) Login(ctx *kp.Ctx) {
 		return
 	}
 
-	sessionCode, err := h.oauthService.GetSessionCodeByID(ctx.Context(), sessionId)
+	sessionCode, err := h.oauthService.GetSessionCodeByID(ctx, sessionId)
 	if err != nil {
 		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_session"}, err)
 		return
@@ -204,7 +204,7 @@ func (h *AuthHandler) Login(ctx *kp.Ctx) {
 	body.SessionID = sessionId
 
 	// check user credentials here
-	request, err := h.oauthService.Login(ctx.Context(), body, sessionCode.IDTokenAlg) // not_found go to register
+	request, err := h.oauthService.Login(ctx, body, sessionCode.IDTokenAlg) // not_found go to register
 	if err != nil {
 		if err.Error() == "not_found" {
 			// Send redirect to register page with all OAuth params
@@ -244,7 +244,7 @@ func (h *AuthHandler) Register(ctx *kp.Ctx) {
 		return
 	}
 
-	sessionCode, err := h.oauthService.GetSessionCodeByID(ctx.Context(), sessionId)
+	sessionCode, err := h.oauthService.GetSessionCodeByID(ctx, sessionId)
 	if err != nil {
 		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_session"}, err)
 		return
@@ -254,7 +254,7 @@ func (h *AuthHandler) Register(ctx *kp.Ctx) {
 	body.SessionID = sessionId
 
 	// check user credentials here
-	request, err := h.oauthService.RegisterUser(ctx.Context(), body, sessionCode.IDTokenAlg) // not_found go to register
+	request, err := h.oauthService.RegisterUser(ctx, body, sessionCode.IDTokenAlg) // not_found go to register
 	if err != nil {
 		ctx.JSONError(http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"}, err)
 		return
