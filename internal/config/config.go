@@ -124,6 +124,12 @@ func (cm *AppConfig) LoadDefaults() error {
 	if cm.BaseURL == "" {
 		cm.BaseURL = "http://localhost:" + cm.Port
 	}
+	if cm.ServiceName == "" {
+		cm.ServiceName = "oauth-server"
+	}
+	if cm.Version == "" {
+		cm.Version = "1.0.0"
+	}
 	config := OpenidConfiguration{
 		Issuer:                 cm.BaseURL,
 		AuthorizationEndpoint:  cm.BaseURL + "/authorize",

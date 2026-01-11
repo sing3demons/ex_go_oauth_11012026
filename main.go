@@ -23,6 +23,10 @@ func main() {
 	cfg := config.NewConfigManager()
 	cfg.LoadDefaults()
 
+	// สร้าง parent logger แค่ครั้งเดียว
+	parentLogger := logger.NewLoggerWithConfig(cfg.ServiceName, cfg.Version, &cfg.LoggerConfig)
+	defer parentLogger.Close() // ปิด file writers ตอน shutdown
+
 	db, err := mongodb.NewDatabase(cfg.DatabaseURL, "oauth_kp")
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
@@ -50,7 +54,7 @@ func main() {
 	oauthService := oauth.NewOAuthService(sessionRepository, userRepository, jwksRepository, oauthAuthCodeRepository)
 	authHandler := oauth.NewAuthHandler(cfg, clientService, oauthService)
 
-	app := kp.NewMicroservice(cfg)
+	app := kp.NewMicroservice(cfg, parentLogger)
 	app.GET("/oauth/register", func(ctx *kp.Ctx) {
 		ctx.L("render_register_page")
 

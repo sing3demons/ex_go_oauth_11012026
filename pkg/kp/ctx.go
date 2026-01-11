@@ -43,7 +43,6 @@ type CtxKey string
 const (
 	SessionID     CtxKey = "x-session-id"
 	TransactionID CtxKey = "x-transaction-id"
-	LoggerKey     CtxKey = "logger"
 )
 
 type Ctx struct {
@@ -52,6 +51,34 @@ type Ctx struct {
 	Cfg      *config.AppConfig
 	Log      logger.ILogger
 	validate *validator.Validate
+}
+
+type ICtx interface {
+	context.Context
+
+	TransactionID() string
+	SessionID() string
+	SetSessionID(sid string)
+
+	Params(name string) string
+	Query(name string) string
+	Bind(v any) error
+	BindQuery(v any) error
+
+	L(userCase string, masking ...logger.MaskingRule) logger.ILogger
+
+	Headers() map[string]string
+	ParamsMap() map[string]string
+	QueryString() map[string]string
+
+	JSON(code int, v any, masking ...logger.MaskingRule)
+	Redirect(urlStr string)
+	RedirectWithError(rawURL string, code int, v any, err error)
+	Render(path string, data map[string]any)
+	JSONError(code int, v any, err error)
+
+	GetFile(name string) (*multipart.FileHeader, error)
+	GetFiles(name string) ([]*multipart.FileHeader, error)
 }
 
 // context.Context interface methods
@@ -163,18 +190,13 @@ func (c *Ctx) genTransactionID() string {
 	return tid
 }
 
-func newMuxContext(w http.ResponseWriter, r *http.Request, cfg *config.AppConfig) *Ctx {
+func newMuxContext(w http.ResponseWriter, r *http.Request, cfg *config.AppConfig, csLog logger.ILogger) ICtx {
 	start := time.Now()
-
-	csLog := logger.NewLoggerWithConfig(cfg.ServiceName, cfg.Version, &cfg.LoggerConfig)
-	pCtx := context.WithValue(r.Context(), "logger", csLog)
-	r = r.WithContext(pCtx)
-
 	myCtx := &Ctx{
 		Res:      w,
 		Req:      r,
 		Cfg:      cfg,
-		Log:      csLog,
+		Log:      csLog.Clone(),
 		validate: validator.New(),
 	}
 	myCtx.genTransactionID()

@@ -107,6 +107,18 @@ type Logger struct {
 	metadata      map[string]any
 	fileWriters   map[string]*fileWriter // cached file writers by path
 	writersMu     sync.RWMutex
+	parent        *Logger    // parent logger for cloning
+	pool          *sync.Pool // pool for reusing logger instances
+}
+
+var defaultLoggerPool = &sync.Pool{
+	New: func() interface{} {
+		return &Logger{
+			detailLogs: make([]DetailLog, 0),
+			metadata:   make(map[string]any),
+			startTime:  time.Now(),
+		}
+	},
 }
 
 type ILogger interface {
@@ -128,6 +140,8 @@ type ILogger interface {
 	SessionID() string
 	TransactionID() string
 	LogWithContext(ctx context.Context) ILogger
+	Clone() ILogger
+	Release()
 }
 
 func NewLogger(service, version string) ILogger {
@@ -139,6 +153,7 @@ func NewLogger(service, version string) ILogger {
 		startTime:   time.Now(),
 		metadata:    make(map[string]any),
 		fileWriters: make(map[string]*fileWriter),
+		pool:        defaultLoggerPool,
 	}
 }
 
@@ -155,6 +170,7 @@ func NewLoggerWithConfig(service, version string, config *configs.LoggerConfig) 
 		startTime:   time.Now(),
 		metadata:    make(map[string]any),
 		fileWriters: make(map[string]*fileWriter),
+		pool:        defaultLoggerPool,
 	}
 }
 
@@ -167,6 +183,23 @@ func (l *Logger) LogWithContext(ctx context.Context) ILogger {
 		return NewLogger("", "")
 	}
 
+	return logger
+}
+
+// SetLogger stores a logger in context
+func SetLogger(ctx context.Context, logger ILogger) context.Context {
+	return context.WithValue(ctx, LoggerKey, logger)
+}
+
+// GetLogger retrieves a logger from context
+func GetLogger(ctx context.Context) ILogger {
+	if ctx == nil {
+		return nil
+	}
+	logger, ok := ctx.Value(LoggerKey).(ILogger)
+	if !ok || logger == nil {
+		return nil
+	}
 	return logger
 }
 
@@ -597,6 +630,8 @@ func (l *Logger) Flush(statusCode int, message string) {
 
 	l.write(log)
 	l.cleanup()
+	// Return logger to pool if it's a cloned instance
+	defer l.Release()
 }
 
 // FlushError writes a summary log with error status and cleans up accumulated logs
@@ -635,6 +670,8 @@ func (l *Logger) FlushError(statusCode int, message string) {
 
 	l.write(log)
 	l.cleanup()
+	// Return logger to pool if it's a cloned instance
+	defer l.Release()
 }
 
 // cleanup resets the logger state for next transaction
@@ -730,6 +767,54 @@ func dataToString(data any) string {
 	}
 
 	return string(jsonBytes)
+}
+
+// Clone creates a new logger instance that shares config and file writers with parent
+// but has independent state (transactionID, sessionID, metadata, etc.)
+// Use this in middleware to create a logger per request
+func (l *Logger) Clone() ILogger {
+	if l.pool == nil {
+		l.pool = defaultLoggerPool
+	}
+
+	cloned := l.pool.Get().(*Logger)
+	cloned.service = l.service
+	cloned.version = l.version
+	cloned.config = l.config
+	cloned.fileWriters = l.fileWriters // Share file writers
+	cloned.parent = l
+	cloned.pool = l.pool
+	cloned.startTime = time.Now()
+
+	// Reset state
+	if cloned.metadata == nil {
+		cloned.metadata = make(map[string]any)
+	}
+	if cloned.detailLogs == nil {
+		cloned.detailLogs = make([]DetailLog, 0)
+	}
+
+	return cloned
+}
+
+// Release returns the logger to the pool for reuse
+// Call this after Flush/FlushError in middleware
+func (l *Logger) Release() {
+	if l.parent == nil || l.pool == nil {
+		return // Don't release parent loggers
+	}
+
+	l.mu.Lock()
+	l.transactionID = ""
+	l.sessionID = ""
+	l.UseCase = ""
+	l.detailLogs = l.detailLogs[:0]
+	for k := range l.metadata {
+		delete(l.metadata, k)
+	}
+	l.mu.Unlock()
+
+	l.pool.Put(l)
 }
 
 type LogOption func(*DetailLog)

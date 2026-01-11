@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sing3demons/oauth/kp/internal/config"
+	"github.com/sing3demons/oauth/kp/pkg/logger"
 )
 
 type MyHandler func(ctx *Ctx)
@@ -21,9 +22,10 @@ type HandleFunc func(http.Handler) http.Handler
 type Middleware HandleFunc
 
 type Microservice struct {
-	config      *config.AppConfig
-	mux         *http.ServeMux
-	middlewares []Middleware
+	config       *config.AppConfig
+	mux          *http.ServeMux
+	middlewares  []Middleware
+	parentLogger logger.ILogger
 }
 type IMicroservice interface {
 	Start()
@@ -43,10 +45,11 @@ type IMicroservice interface {
 
 }
 
-func NewMicroservice(cfg *config.AppConfig) IMicroservice {
+func NewMicroservice(cfg *config.AppConfig, parentLogger logger.ILogger) IMicroservice {
 	return &Microservice{
-		config: cfg,
-		mux:    http.NewServeMux(),
+		config:       cfg,
+		mux:          http.NewServeMux(),
+		parentLogger: parentLogger,
 	}
 }
 
@@ -123,7 +126,7 @@ func (m *Microservice) Use(middleware Middleware) {
 func (m *Microservice) preHandle(handler MyHandler, middlewares ...Middleware) http.HandlerFunc {
 	// Wrap MyHandler into http.HandlerFunc
 	final := func(w http.ResponseWriter, r *http.Request) {
-		handler(newMuxContext(w, r, m.config))
+		handler(newMuxContext(w, r, m.config, m.parentLogger).(*Ctx))
 	}
 	// Apply middlewares in reverse order (so the first is outermost)
 	for i := len(middlewares) - 1; i >= 0; i-- {
