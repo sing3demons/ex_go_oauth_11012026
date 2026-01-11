@@ -342,11 +342,7 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 		ctx.JSONError(http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"}, nil)
 		return
 	}
-	if body.Code != "" && body.GrantType == "authorization_code" {
-		//set code to session context
-		// not jwt token
-		ctx.SetSessionID(body.Code)
-	}
+	
 	switch body.GrantType {
 	case "authorization_code":
 		cmd = "token_authcode"
@@ -356,14 +352,13 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 		cmd = "token_exchange"
 	}
 
-	ctx.L(cmd)
-
 	// req.header.Authorization
 	if authHeader := ctx.Req.Header.Get("Authorization"); authHeader != "" {
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) == 2 && strings.ToLower(parts[0]) == "basic" {
 			decoded, err := base64.StdEncoding.DecodeString(parts[1])
 			if err != nil {
+				ctx.L(cmd)
 				ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_authorization_header"}, err)
 				return
 			}
@@ -376,6 +371,7 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 			clientSecret := credParts[1]
 			if body.ClientID != "" {
 				if body.ClientID != clientID {
+					ctx.L(cmd)
 					ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_client"}, nil)
 					return
 				}
@@ -384,6 +380,7 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 			}
 			if body.ClientSecret != "" {
 				if body.ClientSecret != clientSecret {
+					ctx.L(cmd)
 					ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_client"}, nil)
 					return
 				}
@@ -397,13 +394,8 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 	// client_id,code, redirect_uri, code_verifier
 	switch body.GrantType {
 	case "authorization_code":
-		if body.Code == "" {
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, nil)
-			return
-		}
-
 		// support method get post
-		accessToken, refreshToken, idToken, err := h.oauthService.ExchangeAuthorizationCode(ctx, body)
+		accessToken, refreshToken, idToken, err := h.oauthService.ExchangeAuthorizationCode(ctx, cmd, body)
 		if err != nil {
 			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_grant"}, err)
 			return
@@ -427,7 +419,7 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 		return
 	case "refresh_token":
 		// implement refresh token flow here
-		accessToken, refreshToken, idToken, err := h.oauthService.RefreshToken(ctx, body)
+		accessToken, refreshToken, idToken, err := h.oauthService.RefreshToken(ctx, cmd, body)
 		if err != nil {
 			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_grant"}, err)
 			return

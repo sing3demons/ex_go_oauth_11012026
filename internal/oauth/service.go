@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -19,6 +20,7 @@ import (
 	"github.com/sing3demons/oauth/kp/internal/session"
 	"github.com/sing3demons/oauth/kp/internal/token"
 	"github.com/sing3demons/oauth/kp/internal/user"
+	"github.com/sing3demons/oauth/kp/pkg/mlog"
 )
 
 type OAuthService struct {
@@ -199,7 +201,10 @@ func (s *OAuthService) ValidateAuthorizationCode(ctx context.Context, code strin
 }
 
 // grant_type=authorization_code
-func (s *OAuthService) ExchangeAuthorizationCode(ctx context.Context, body TokenRequest) (accessToken string, refreshToken string, idToken string, err error) {
+func (s *OAuthService) ExchangeAuthorizationCode(ctx context.Context, cmd string, body TokenRequest) (accessToken string, refreshToken string, idToken string, err error) {
+	log := mlog.L(ctx)
+	log.SetSessionID(SliceString(body.Code, 8))
+	log.SetUseCase(cmd)
 	clientModel, err := s.clientService.ValidateClientToken(ctx, body.ClientID, body.ClientSecret, body.CodeVerifier)
 	if err != nil {
 		return "", "", "", err
@@ -338,7 +343,9 @@ func (s *OAuthService) ExchangeAuthorizationCode(ctx context.Context, body Token
 	return accessToken, refreshToken, idToken, nil
 }
 
-func (s *OAuthService) RefreshToken(ctx context.Context, body TokenRequest) (accessToken string, refreshToken string, idToken string, err error) {
+func (s *OAuthService) RefreshToken(ctx context.Context, cmd string, body TokenRequest) (accessToken string, refreshToken string, idToken string, err error) {
+	log := mlog.L(ctx)
+	log.SetUseCase(cmd)
 	// Implement refresh token logic here
 	// validate the refresh token, generate new access token and refresh token
 	if body.Code == "" {
@@ -348,22 +355,28 @@ func (s *OAuthService) RefreshToken(ctx context.Context, body TokenRequest) (acc
 	kid := ""
 
 	refreshTokenPayload := map[string]any{}
+	errorList := []string{}
 	if s.IsJwtToken(body.Code) {
 		header, claims, err := s.jwksService.DecodeJwtToken(body.Code)
 		if err != nil {
-			return "", "", "", err
+			errorList = append(errorList, err.Error())
 		}
+		maps.Copy(refreshTokenPayload, claims)
 		jti, ok := claims["jti"].(string)
 		if !ok {
-			return "", "", "", fmt.Errorf("invalid refresh token")
+			errorList = append(errorList, "invalid=jti")
+		} else {
+			id = jti
 		}
-
 		kid, ok = header["kid"].(string)
 		if !ok {
-			return "", "", "", fmt.Errorf("invalid refresh token header")
+			errorList = append(errorList, "invalid=kid")
 		}
-		id = jti
-		maps.Copy(refreshTokenPayload, claims)
+	}
+
+	log.SetSessionID(SliceString(id, 36))
+	if len(errorList) > 0 {
+		return "", "", "", errors.New(strings.Join(errorList, "; "))
 	}
 
 	currentTime := time.Now()

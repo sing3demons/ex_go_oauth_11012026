@@ -40,7 +40,7 @@ func NewAuthorizationCodeRepository(db *database.Database) IAuthorizationCodeRep
 	// expires_at index for TTL
 	repo.collection.Indexes().CreateMany(context.Background(), []mongo.IndexModel{
 		{
-			Keys: bson.D{{Key: "authcode_id", Value: 1}},
+			Keys: bson.D{{Key: "auth_code_id", Value: 1}},
 			Options: options.Index().
 				SetUnique(true).
 				SetName("uniq_authcode_id"),
