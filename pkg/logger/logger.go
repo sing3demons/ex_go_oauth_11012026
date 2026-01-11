@@ -69,6 +69,27 @@ type DetailLog struct {
 	ResultCode        string         `json:"resultCode,omitempty"`
 	ResultFlag        string         `json:"resultFlag,omitempty"`
 	AdditionalInfo    map[string]any `json:"additionalInfo,omitempty"`
+
+	// New fields for enhanced logging
+	RequestID     string `json:"requestId,omitempty"`     // Request ID จาก HTTP header
+	CorrelationID string `json:"correlationId,omitempty"` // สำหรับติดตาม distributed tracing
+	TraceID       string `json:"traceId,omitempty"`       // OpenTelemetry trace ID
+	SpanID        string `json:"spanId,omitempty"`        // OpenTelemetry span ID
+	Environment   string `json:"environment,omitempty"`   // dev, staging, production
+	Region        string `json:"region,omitempty"`        // AWS region, data center
+	HostName      string `json:"hostName,omitempty"`      // Server hostname
+	PodName       string `json:"podName,omitempty"`       // Kubernetes pod name
+	RequestMethod string `json:"requestMethod,omitempty"` // HTTP method (GET, POST, etc.)
+	RequestPath   string `json:"requestPath,omitempty"`   // API endpoint path
+	RequestSize   int64  `json:"requestSize,omitempty"`   // Request body size (bytes)
+	ResponseSize  int64  `json:"responseSize,omitempty"`  // Response body size (bytes)
+	ResourceID    string `json:"resourceId,omitempty"`    // ID ของ resource ที่ถูกจัดการ
+	OperationType string `json:"operationType,omitempty"` // CRUD operation type
+	DataSource    string `json:"dataSource,omitempty"`    // ชื่อ database/cache
+	QueryDuration int64  `json:"queryDuration,omitempty"` // Database query time
+	CacheHit      *bool  `json:"cacheHit,omitempty"`      // Cache hit/miss
+	RetryCount    int    `json:"retryCount,omitempty"`    // จำนวนครั้งที่ retry
+	Retryable     bool   `json:"retryable,omitempty"`     // บอกว่า error นี้สามารถ retry ได้หรือไม่
 }
 
 type ErrorSource struct {
@@ -92,6 +113,9 @@ type fileWriter struct {
 	currentDate string
 	currentSize int64
 	config      configs.RotationConfig
+	lastFlush   time.Time
+	flushTicker *time.Ticker
+	done        chan bool
 }
 
 type Logger struct {
@@ -121,6 +145,14 @@ var defaultLoggerPool = &sync.Pool{
 	},
 }
 
+// Pool for reusing JSON encoding buffers
+var jsonBufferPool = &sync.Pool{
+	New: func() interface{} {
+		buf := make([]byte, 0, 1024) // Pre-allocate 1KB
+		return &buf
+	},
+}
+
 type ILogger interface {
 	SetSessionID(sessionID string)
 	SetTransactionID(transactionID string)
@@ -142,6 +174,10 @@ type ILogger interface {
 	LogWithContext(ctx context.Context) ILogger
 	Clone() ILogger
 	Release()
+
+	// เพิ่ม method สำหรับ extract/inject context
+	WithTraceContext(ctx context.Context) ILogger
+	InjectContext(ctx context.Context) context.Context
 }
 
 func NewLogger(service, version string) ILogger {
@@ -303,9 +339,16 @@ func (l *Logger) getOrCreateWriter(basePath, date string) (*fileWriter, error) {
 		currentDate: date,
 		currentSize: info.Size(),
 		config:      l.config.Rotation,
+		lastFlush:   time.Now(),
+		flushTicker: time.NewTicker(5 * time.Second), // Auto-flush every 5 seconds
+		done:        make(chan bool),
 	}
 
 	l.fileWriters[key] = fw
+
+	// Start periodic flush goroutine
+	go fw.periodicFlush()
+
 	return fw, nil
 }
 
@@ -338,8 +381,11 @@ func (fw *fileWriter) Write(data []byte) error {
 	}
 	fw.currentSize += int64(n)
 
-	// Flush periodically or on error logs
-	fw.writer.Flush()
+	// Flush only when buffer is large enough or on critical logs
+	// This improves performance by reducing syscalls
+	if fw.writer.Available() < 1024 { // Flush when buffer < 1KB available
+		fw.writer.Flush()
+	}
 
 	return nil
 }
@@ -458,6 +504,12 @@ func (fw *fileWriter) Close() error {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 
+	// Stop periodic flush
+	if fw.flushTicker != nil {
+		fw.flushTicker.Stop()
+		close(fw.done)
+	}
+
 	if fw.writer != nil {
 		fw.writer.Flush()
 	}
@@ -465,6 +517,23 @@ func (fw *fileWriter) Close() error {
 		return fw.file.Close()
 	}
 	return nil
+}
+
+// periodicFlush automatically flushes the buffer every interval
+func (fw *fileWriter) periodicFlush() {
+	for {
+		select {
+		case <-fw.flushTicker.C:
+			fw.mu.Lock()
+			if fw.writer != nil && time.Since(fw.lastFlush) > 5*time.Second {
+				fw.writer.Flush()
+				fw.lastFlush = time.Now()
+			}
+			fw.mu.Unlock()
+		case <-fw.done:
+			return
+		}
+	}
 }
 
 // Close closes all file writers and flushes buffers
@@ -508,6 +577,25 @@ func (l *Logger) Detail(level LogLevel, actionInfo logAction.LoggerAction, data 
 	l.mu.RLock()
 	transactionID := l.transactionID
 	sessionID := l.sessionID
+	useCase := l.UseCase
+
+	// Extract metadata safely with read lock
+	var dependency, resultCode, resultFlag string
+	var responseTime int64
+	if len(l.metadata) > 0 {
+		if dep, ok := l.metadata["dependency"].(string); ok {
+			dependency = dep
+		}
+		if rt, ok := l.metadata["responseTime"].(int64); ok {
+			responseTime = rt
+		}
+		if rc, ok := l.metadata["resultCode"].(string); ok {
+			resultCode = rc
+		}
+		if rf, ok := l.metadata["resultFlag"].(string); ok {
+			resultFlag = rf
+		}
+	}
 	l.mu.RUnlock()
 
 	log := DetailLog{
@@ -519,30 +607,11 @@ func (l *Logger) Detail(level LogLevel, actionInfo logAction.LoggerAction, data 
 		Message:           dataToString(maskedData),
 		TransactionID:     transactionID,
 		SessionID:         sessionID,
-		UseCase:           l.UseCase,
-	}
-
-	if len(l.metadata) > 0 {
-		if l.metadata["dependency"] != nil {
-			log.Dependency = l.metadata["dependency"].(string)
-			// Remove dependency from metadata to avoid duplication
-			delete(l.metadata, "dependency")
-		}
-		if l.metadata["responseTime"] != nil {
-			log.ResponseTime = l.metadata["responseTime"].(int64)
-			// Remove responseTime from metadata to avoid duplication
-			delete(l.metadata, "responseTime")
-		}
-		if l.metadata["resultCode"] != nil {
-			log.ResultCode = l.metadata["resultCode"].(string)
-			// Remove resultCode from metadata to avoid duplication
-			delete(l.metadata, "resultCode")
-		}
-		if l.metadata["resultFlag"] != nil {
-			log.ResultFlag = l.metadata["resultFlag"].(string)
-			// Remove resultFlag from metadata to avoid duplication
-			delete(l.metadata, "resultFlag")
-		}
+		UseCase:           useCase,
+		Dependency:        dependency,
+		ResponseTime:      responseTime,
+		ResultCode:        resultCode,
+		ResultFlag:        resultFlag,
 	}
 
 	l.write(log)
@@ -817,98 +886,101 @@ func (l *Logger) Release() {
 	l.pool.Put(l)
 }
 
-type LogOption func(*DetailLog)
-
-func WithTransactionID(id string) LogOption {
-	return func(l *DetailLog) {
-		l.TransactionID = id
+// WithTraceContext extracts trace context from the given context.Context and adds it to the logger.
+// This method is used to propagate trace information (like TraceID and SpanID) across process boundaries.
+func (l *Logger) WithTraceContext(ctx context.Context) ILogger {
+	if ctx == nil {
+		return l
 	}
+
+	// Extract trace information from context
+	if val, ok := ctx.Value("traceId").(string); ok && val != "" {
+		l.AddMetadata("traceId", val)
+	}
+	if val, ok := ctx.Value("spanId").(string); ok && val != "" {
+		l.AddMetadata("spanId", val)
+	}
+
+	return l
 }
 
-func WithSessionID(id string) LogOption {
-	return func(l *DetailLog) {
-		l.SessionID = id
+// InjectContext injects the logger's trace context (if any) into the given context.Context.
+// This is used to pass the logger's trace information to downstream services or processes.
+func (l *Logger) InjectContext(ctx context.Context) context.Context {
+	if l == nil {
+		return ctx
 	}
+
+	// Inject trace information into context
+	if traceId, ok := l.metadata["traceId"].(string); ok && traceId != "" {
+		ctx = context.WithValue(ctx, "traceId", traceId)
+	}
+	if spanId, ok := l.metadata["spanId"].(string); ok && spanId != "" {
+		ctx = context.WithValue(ctx, "spanId", spanId)
+	}
+
+	return ctx
 }
 
-func WithActionDescription(desc string) LogOption {
-	return func(l *DetailLog) {
-		l.ActionDescription = desc
-	}
+type ErrorDetail struct {
+	Code      string                 `json:"code"`
+	Message   string                 `json:"message"`
+	Details   map[string]interface{} `json:"details,omitempty"`
+	Source    ErrorSource            `json:"source,omitempty"`
+	Retryable bool                   `json:"retryable"`
 }
 
-func WithSubAction(subAction string) LogOption {
-	return func(l *DetailLog) {
-		l.SubAction = subAction
+func (l *Logger) LogError(err ErrorDetail, maskingRules ...MaskingRule) {
+	var maskedData any
+	if len(maskingRules) > 0 {
+		maskedData = MaskData(err, maskingRules)
+	} else {
+		maskedData = err
 	}
-}
 
-func WithUserID(id string) LogOption {
-	return func(l *DetailLog) {
-		l.UserID = id
+	l.mu.RLock()
+	transactionID := l.transactionID
+	sessionID := l.sessionID
+	l.mu.RUnlock()
+
+	log := DetailLog{
+		Level:         LevelError,
+		Type:          TypeDetail,
+		Message:       err.Message,
+		TransactionID: transactionID,
+		SessionID:     sessionID,
+		UseCase:       l.UseCase,
+		Error:         err.Message,
+		Stack:         dataToString(maskedData),
+		ErrorCode:     err.Code,
+		Retryable:     err.Retryable,
 	}
-}
 
-func WithClientID(id string) LogOption {
-	return func(l *DetailLog) {
-		l.ClientID = id
+	// Safely extract metadata with type assertions
+	l.mu.RLock()
+	if dependency, ok := l.metadata["dependency"].(string); ok {
+		log.Dependency = dependency
 	}
-}
-
-func WithEmail(email string) LogOption {
-	return func(l *DetailLog) {
-		l.Email = email
+	if responseTime, ok := l.metadata["responseTime"].(int64); ok {
+		log.ResponseTime = responseTime
 	}
-}
-
-func WithIPAddress(ip string) LogOption {
-	return func(l *DetailLog) {
-		l.IPAddress = ip
+	if resultCode, ok := l.metadata["resultCode"].(string); ok {
+		log.ResultCode = resultCode
 	}
-}
-
-func WithUserAgent(ua string) LogOption {
-	return func(l *DetailLog) {
-		l.UserAgent = ua
+	if resultFlag, ok := l.metadata["resultFlag"].(string); ok {
+		log.ResultFlag = resultFlag
 	}
-}
-
-func WithDuration(ms int64) LogOption {
-	return func(l *DetailLog) {
-		l.Duration = ms
-	}
-}
-
-func WithStatusCode(code int) LogOption {
-	return func(l *DetailLog) {
-		l.StatusCode = code
-	}
-}
-
-func WithError(err string) LogOption {
-	return func(l *DetailLog) {
-		l.Error = err
-	}
-}
-
-func WithErrorCode(code string) LogOption {
-	return func(l *DetailLog) {
-		l.ErrorCode = code
-	}
-}
-
-func WithMetadata(key string, value any) LogOption {
-	return func(l *DetailLog) {
-		if l.Metadata == nil {
-			l.Metadata = make(map[string]any)
+	// Copy additional metadata excluding already handled fields
+	additionalInfo := make(map[string]any)
+	for k, v := range l.metadata {
+		if k != "dependency" && k != "responseTime" && k != "resultCode" && k != "resultFlag" {
+			additionalInfo[k] = v
 		}
-		l.Metadata[key] = value
 	}
-}
-
-func WithMetadataMap(metadata map[string]any) LogOption {
-	return func(l *DetailLog) {
-		l.Metadata = metadata
+	if len(additionalInfo) > 0 {
+		log.AdditionalInfo = additionalInfo
 	}
+	l.mu.RUnlock()
 
+	l.write(log)
 }
