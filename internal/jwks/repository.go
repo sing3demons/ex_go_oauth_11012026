@@ -33,6 +33,8 @@ type ISigningKeyRepository interface {
 	LoadActiveKeyByAlgorithm() ([]SigningKey, error)
 	// DeactivateKeyByKID(kid string) error
 	// CleanupOldInactiveKeys(olderThan time.Duration) error
+	FindByKID(ctx context.Context, kid string) (SigningKey, error)
+	UpdateSigningKey(ctx context.Context, conf_mongo_signing_key_oidc_exp int, key SigningKey) error
 }
 
 type JWTAlgorithm string
@@ -293,6 +295,79 @@ func (j *SigningKeyRepository) LoadActiveKeyByAlgorithm() ([]SigningKey, error) 
 	return keys, nil
 }
 
+func (j *SigningKeyRepository) FindByKID(c context.Context, kid string) (SigningKey, error) {
+	if kid == "" {
+		return SigningKey{}, errors.New("kid is required")
+	}
+	cacheKey := "signing_key_kid_" + kid
+	val, err := j.cache.Get(c, cacheKey)
+	if err == nil && val != "" {
+		var key SigningKey
+		err = json.Unmarshal([]byte(val), &key)
+		if err == nil {
+			return key, nil
+		}
+	}
+	start := time.Now()
+	log := mlog.L(c)
+
+	ctx, cancel := context.WithTimeout(c, 15*time.Second)
+	defer cancel()
+	filter := bson.M{
+		"kid":    kid,
+		"active": true,
+	}
+
+	raw := query.GenerateFindQuery(j.collection.Name(), filter)
+	log.SetDependencyMetadata(logger.DependencyMetadata{
+		Dependency: j.collection.Name(),
+	}).Debug(logAction.DB_REQUEST(logAction.DB_READ, raw), filter)
+
+	var key SigningKey
+	err = j.collection.FindOne(ctx, filter).Decode(&key)
+	elapsedMs := time.Since(start).Milliseconds()
+
+	result := map[string]any{}
+	if err != nil {
+		result = map[string]any{
+			"error": err.Error(),
+		}
+		log.SetDependencyMetadata(logger.DependencyMetadata{
+			Dependency:   j.collection.Name(),
+			ResponseTime: elapsedMs,
+		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), result)
+	} else {
+		result = map[string]any{
+			"data": key,
+		}
+
+		maskingRules := []logger.MaskingRule{
+			{
+				Field: "data.PrivateKey", Type: logger.MaskingTypeFull,
+			},
+			{
+				Field: "data.PublicKey", Type: logger.MaskingTypeFull,
+			},
+		}
+		log.SetDependencyMetadata(logger.DependencyMetadata{
+			Dependency:   j.collection.Name(),
+			ResponseTime: elapsedMs,
+		}).Debug(logAction.DB_RESPONSE(logAction.DB_READ, "mongo response"), result, maskingRules...)
+
+		// cache the key
+		exp := 30 * time.Minute
+		if key.ExpiresAt != nil {
+			ttl := time.Until(*key.ExpiresAt)
+			if ttl < exp {
+				exp = ttl
+			}
+		}
+		j.cache.Set(c, cacheKey, key, exp)
+	}
+
+	return key, err
+}
+
 func (j *SigningKeyRepository) FindKeyOidcByAlgorithm(c context.Context) ([]SigningKey, error) {
 	if len(j.algorithms) == 0 {
 		return nil, errors.New("no algorithms specified")
@@ -418,6 +493,9 @@ func (j *SigningKeyRepository) FindKeyOidcByAlgorithm(c context.Context) ([]Sign
 }
 
 func (j *SigningKeyRepository) FindByAlgorithm(c context.Context, alg string) (SigningKey, error) {
+	if alg == "" {
+		return SigningKey{}, errors.New("algorithm is required")
+	}
 	cacheKey := "signing_key_" + alg
 	val, err := j.cache.Get(c, cacheKey)
 	if err == nil && val != "" {

@@ -242,6 +242,7 @@ type AuthCode struct {
 	SessionID            string   `json:"x_session_id" bson:"x_session_id"`
 	TID                  string   `json:"x_tid" bson:"x_tid"`
 	UserID               string   `json:"uid" bson:"uid"`
+	ISS                  string   `json:"iss,omitempty" bson:"iss,omitempty"`
 	AccessTokenLifetime  int      `json:"accesstoken_lifetime,omitempty" bson:"accesstoken_lifetime,omitempty"`
 	RefreshTokenLifetime int      `json:"refreshtoken_lifetime,omitempty" bson:"refreshtoken_lifetime,omitempty"`
 	PublicID             PublicID `json:"public_id,omitempty" bson:"public_id,omitempty"`
@@ -258,6 +259,7 @@ type AuthorizationCode struct {
 	ID         string `json:"id" bson:"_id,omitempty"`
 	AuthCodeId string `json:"auth_code_id" bson:"auth_code_id"`
 	Used       bool   `json:"used" bson:"used"`
+	IDTokenAlg string `bson:"id_token_alg" json:"-"`
 
 	// Issue time.Time `bson:"iss" json:"-"` // baseURL
 	AuthCode AuthCode `bson:"auth_code" json:"auth_code"`
@@ -288,7 +290,21 @@ func (ac *AuthorizationCode) CheckAuthCodeId() error {
 	uuidPart := ac.AuthCodeId[8:]
 
 	return uuid.Validate(uuidPart)
+}
 
+func GenerateJti(sid string) string {
+	if sid == "" {
+		sid = uuid.NewString()
+	}
+
+	if len(sid) > 36 {
+		sid = sid[:36]
+	} else if len(sid) < 36 {
+		sid = sid + generateRandomString(36-len(sid))
+	}
+
+	id := uuid.NewString() + sid
+	return id
 }
 
 const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"

@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"maps"
@@ -63,49 +64,45 @@ func (s *JWTService) GetJWKS(c context.Context) (JWKS, error) {
 	return JWKS{Keys: keys}, nil
 }
 
-func (s *JWTService) GenerateJwtToken(header, payload map[string]any, signature any) (string, error) {
-	// validate header
-	if _, ok := header["alg"]; !ok {
-		return "", fmt.Errorf("missing alg in header")
-	}
-	if _, ok := header["typ"]; !ok {
-		return "", fmt.Errorf("missing typ in header")
-	}
-	if _, ok := header["kid"]; !ok {
-		return "", fmt.Errorf("missing kid in header")
-	}
-
+func (s *JWTService) GenerateJwtToken(signingKey SigningKey, payload map[string]any) (string, error) {
 	var algorithm jwt.SigningMethod
-	switch header["alg"] {
+	switch signingKey.Algorithm {
 	case "RS256":
 		algorithm = jwt.SigningMethodRS256
 	case "ES256":
 		algorithm = jwt.SigningMethodES256
 	default:
-		return "", fmt.Errorf("unsupported algorithm: %s", header["alg"])
+		return "", fmt.Errorf("unsupported algorithm: %s", signingKey.Algorithm)
+	}
+
+	if payload["iss"] == nil {
+		payload["iss"] = s.cfg.OidcConfig.Issuer
+	}
+	if payload["jti"] == nil {
+		payload["jti"] = uuid.New().String()
+	}
+	if payload["iat"] == nil {
+		payload["iat"] = time.Now().Unix()
+	}
+	if payload["exp"] == nil {
+		return "", fmt.Errorf("missing exp in payload")
 	}
 
 	claims := jwt.MapClaims{}
 	maps.Copy(claims, payload)
 
 	token := jwt.NewWithClaims(algorithm, claims)
-	token.Header["alg"] = header["alg"]
-	token.Header["typ"] = header["typ"]
-	token.Header["kid"] = header["kid"]
+	token.Header["alg"] = signingKey.Algorithm
+	token.Header["typ"] = "JWT"
+	token.Header["kid"] = signingKey.KID
 
 	// validate signature type
-	var validSignature bool
-	switch algorithm {
-	case jwt.SigningMethodRS256:
-		_, validSignature = signature.(*rsa.PrivateKey)
-	case jwt.SigningMethodES256:
-		_, validSignature = signature.(*ecdsa.PrivateKey)
-	}
-	if !validSignature {
-		return "", fmt.Errorf("invalid signature type for algorithm: %s", header["alg"])
+	privateKeyAny, err := ParsePrivateKeyFromPEM(signingKey.PrivateKey)
+	if err != nil {
+		return "", err
 	}
 
-	t, err := token.SignedString(signature)
+	t, err := token.SignedString(privateKeyAny)
 	if err != nil {
 		return "", err
 	}
@@ -116,6 +113,10 @@ func (s *JWTService) GenerateJwtToken(header, payload map[string]any, signature 
 	}
 
 	return t, nil
+}
+
+func (s *JWTService) GetKey(ctx context.Context, alg string) (SigningKey, error) {
+	return s.repo.FindByAlgorithm(ctx, alg)
 }
 
 func (s *JWTService) GenerateJwtTokenWithAlg(ctx context.Context, payload map[string]any, alg string) (string, error) {
@@ -174,7 +175,7 @@ func (s *JWTService) GenerateJwtTokenWithAlg(ctx context.Context, payload map[st
 	return t, nil
 }
 
-func (s *JWTService) ValidateJwksToken(ctx context.Context, tokenString string) (*jwt.Token, error) {
+func (s *JWTService) ValidateJwksToken(ctx context.Context, signingKey SigningKey, tokenString string) (*jwt.Token, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
 		kid, ok := token.Header["kid"].(string)
 		if !ok {
@@ -186,10 +187,14 @@ func (s *JWTService) ValidateJwksToken(ctx context.Context, tokenString string) 
 			return nil, fmt.Errorf("missing alg in token header")
 		}
 
-		signingKey, err := s.repo.FindByAlgorithm(ctx, alg)
-		if err != nil {
-			return nil, err
+		if alg != string(signingKey.Algorithm) {
+			return nil, fmt.Errorf("alg mismatch")
 		}
+
+		// signingKey, err := s.repo.FindByAlgorithm(ctx, alg)
+		// if err != nil {
+		// 	return nil, err
+		// }
 		if signingKey.KID != kid {
 			return nil, fmt.Errorf("kid mismatch")
 		}
@@ -221,6 +226,40 @@ func (s *JWTService) ParseAndValidateJwtToken(tokenString string, publicKey any)
 		return nil, fmt.Errorf("invalid token")
 	}
 	return token, nil
+}
+func (s *JWTService) DecodeJwtToken(tokenString string) (header, payload map[string]any, err error) {
+	parts := strings.Split(tokenString, ".")
+	if len(parts) != 3 {
+		return nil, nil, fmt.Errorf("invalid token format")
+	}
+
+	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = json.Unmarshal(headerBytes, &header)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, nil, err
+	}
+
+	payload = make(map[string]any)
+
+	err = json.Unmarshal(payloadBytes, &payload)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return header, payload, nil
+}
+
+func (s *JWTService) GetKeyByKID(ctx context.Context, kid string) (SigningKey, error) {
+	return s.repo.FindByKID(ctx, kid)
 }
 
 type JWK struct {

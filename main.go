@@ -13,6 +13,7 @@ import (
 	"github.com/sing3demons/oauth/kp/internal/jwks"
 	"github.com/sing3demons/oauth/kp/internal/oauth"
 	"github.com/sing3demons/oauth/kp/internal/session"
+	"github.com/sing3demons/oauth/kp/internal/token"
 	"github.com/sing3demons/oauth/kp/internal/user"
 	"github.com/sing3demons/oauth/kp/pkg/kp"
 	"github.com/sing3demons/oauth/kp/pkg/logger"
@@ -51,7 +52,9 @@ func main() {
 	oauthAuthCodeRepository := oauth.NewAuthorizationCodeRepository(db)
 	sessionRepository := session.NewSessionCodeRepository(db)
 
-	oauthService := oauth.NewOAuthService(sessionRepository, userRepository, jwksRepository, oauthAuthCodeRepository)
+	tokenRepository := token.NewMongoTokenRepository(db)
+
+	oauthService := oauth.NewOAuthService(sessionRepository, userRepository, jwksRepository, oauthAuthCodeRepository, tokenRepository, jwksService, clientService)
 	authHandler := oauth.NewAuthHandler(cfg, clientService, oauthService)
 
 	app := kp.NewMicroservice(cfg, parentLogger)
@@ -83,6 +86,10 @@ func main() {
 	discoverHandler := discover.NewDiscoverHandler(cfg, jwksService)
 	app.GET("/.well-known/openid-configuration", discoverHandler.OIDCHandler)
 	app.GET("/.well-known/jwks.json", discoverHandler.JwksHandler)
+
+	// Token endpoint
+	app.POST("/oauth/token", authHandler.TokenHandler)
+	app.GET("/oauth/token", authHandler.TokenHandler)
 
 	app.GET("/test", func(ctx *kp.Ctx) {
 		ctx.L("test_handler")

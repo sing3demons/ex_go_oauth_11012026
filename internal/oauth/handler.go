@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"encoding/base64"
 	"net/http"
 	"strings"
 
@@ -115,7 +116,7 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 		}
 
 		// generate authorization code and redirect
-		authCodeId, err := h.oauthService.GenerateAuthorizationCode(ctx, &AuthCode{
+		authCodeId, err := h.oauthService.GenerateAuthorizationCode(ctx, clientModel.IDTokenAlg, &AuthCode{
 			ClientID:            sessionCode.ClientID,
 			SessionID:           sessionId,
 			TID:                 ctx.TransactionID(),
@@ -127,6 +128,7 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 			CodeChallengeMethod: sessionCode.CodeChallengeMethod,
 			PublicID:            publicID,
 			Info:                info,
+			ISS:                 h.cfg.OidcConfig.Issuer,
 		})
 		if err != nil {
 			ctx.JSONError(http.StatusInternalServerError, map[string]string{"error": "server_error"}, err)
@@ -261,4 +263,166 @@ func (h *AuthHandler) Register(ctx *kp.Ctx) {
 	}
 
 	ctx.Redirect(body.RedirectToAuthorize(h.cfg.BaseURL, map[string]string{"request": request}))
+}
+
+type TokenRequest struct {
+	GrantType    string `form:"grant_type" json:"grant_type" validate:"required"`
+	Code         string `form:"code" json:"code"`
+	RedirectURI  string `form:"redirect_uri" json:"redirect_uri"`
+	ClientID     string `form:"client_id" json:"client_id" validate:"required"`
+	CodeVerifier string `form:"code_verifier" json:"code_verifier"`
+	State        string `form:"state" json:"state"`
+	ClientSecret string `form:"client_secret" json:"client_secret"`
+}
+
+// Token endpoint handler can be added here
+func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
+	method := ctx.Req.Method
+	cmd := "token"
+	// validate method here
+	// [get,post]
+	if method != http.MethodGet && method != http.MethodPost {
+		ctx.L(cmd)
+		ctx.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
+		return
+	}
+
+	// Implement token endpoint logic here
+	var body TokenRequest
+	switch method {
+	case http.MethodPost:
+		if err := ctx.Bind(&body); err != nil {
+			ctx.L(cmd)
+			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+			return
+		}
+	case http.MethodGet:
+		if err := ctx.BindQuery(&body); err != nil {
+			ctx.L(cmd)
+			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+			return
+		}
+	default:
+		ctx.L(cmd)
+		ctx.JSONError(http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"}, nil)
+		return
+	}
+	if body.Code != "" && body.GrantType == "authorization_code" {
+		//set code to session context
+		// not jwt token
+		ctx.SetSessionID(body.Code)
+	}
+	switch body.GrantType {
+	case "authorization_code":
+		cmd = "token_authcode"
+	case "refresh_token":
+		cmd = "token_refresh"
+	case "urn:ietf:params:oauth:grant-type:token-exchange":
+		cmd = "token_exchange"
+	}
+
+	ctx.L(cmd)
+
+	// req.header.Authorization
+	if authHeader := ctx.Req.Header.Get("Authorization"); authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && strings.ToLower(parts[0]) == "basic" {
+			decoded, err := base64.StdEncoding.DecodeString(parts[1])
+			if err != nil {
+				ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_authorization_header"}, err)
+				return
+			}
+			credParts := strings.SplitN(string(decoded), ":", 2)
+			if len(credParts) != 2 {
+				ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_authorization_header"}, err)
+				return
+			}
+			clientID := credParts[0]
+			clientSecret := credParts[1]
+			if body.ClientID != "" {
+				if body.ClientID != clientID {
+					ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_client"}, nil)
+					return
+				}
+			} else {
+				body.ClientID = clientID
+			}
+			if body.ClientSecret != "" {
+				if body.ClientSecret != clientSecret {
+					ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_client"}, nil)
+					return
+				}
+			} else {
+				body.ClientSecret = clientSecret
+			}
+		}
+	}
+
+	// grant_type = authorization_code
+	// client_id,code, redirect_uri, code_verifier
+	switch body.GrantType {
+	case "authorization_code":
+		if body.Code == "" {
+			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, nil)
+			return
+		}
+
+		// support method get post
+		accessToken, refreshToken, idToken, err := h.oauthService.ExchangeAuthorizationCode(ctx, body)
+		if err != nil {
+			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_grant"}, err)
+			return
+		}
+
+		data := map[string]any{
+			"access_token": accessToken,
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+			// "refresh_token": refreshToken,
+			// "id_token":      idToken,
+		}
+		if refreshToken != "" {
+			data["refresh_token"] = refreshToken
+		}
+		if idToken != "" {
+			data["id_token"] = idToken
+		}
+
+		ctx.JSON(http.StatusOK, data)
+		return
+	case "refresh_token":
+		// implement refresh token flow here
+		accessToken, refreshToken, idToken, err := h.oauthService.RefreshToken(ctx, body)
+		if err != nil {
+			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_grant"}, err)
+			return
+		}
+
+		data := map[string]any{
+			"access_token": accessToken,
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+			// "refresh_token": refreshToken,
+			// "id_token":      idToken,
+		}
+		if refreshToken != "" {
+			data["refresh_token"] = refreshToken
+		}
+		if idToken != "" {
+			data["id_token"] = idToken
+		}
+
+		ctx.JSON(http.StatusOK, data)
+		return
+	case "urn:ietf:params:oauth:grant-type:token-exchange":
+		// support method post
+		if method != http.MethodPost {
+			ctx.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
+			return
+		}
+		// implement token exchange flow here
+	default:
+		ctx.JSON(http.StatusNotImplemented, map[string]string{"error": "unsupported_grant_type"})
+		return
+	}
 }

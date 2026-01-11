@@ -10,13 +10,14 @@ import (
 type QueryType string
 
 const (
-	InsertOne  QueryType = "insertOne"
-	InsertMany QueryType = "insertMany"
-	FindOne    QueryType = "findOne"
-	FindMany   QueryType = "find"
-	UpdateOne  QueryType = "updateOne"
-	DeleteOne  QueryType = "deleteOne"
-	DeleteMany QueryType = "deleteMany"
+	InsertOne        QueryType = "insertOne"
+	InsertMany       QueryType = "insertMany"
+	FindOne          QueryType = "findOne"
+	FindMany         QueryType = "find"
+	UpdateOne        QueryType = "updateOne"
+	FindOneAndUpdate QueryType = "findOneAndUpdate"
+	DeleteOne        QueryType = "deleteOne"
+	DeleteMany       QueryType = "deleteMany"
 )
 
 // GenerateRawQuery generates a MongoDB shell query string from data
@@ -80,6 +81,11 @@ func GenerateFindQuery(collection string, filter interface{}) string {
 // GenerateUpdateQuery is a convenience function for updateOne operations
 func GenerateUpdateQuery(collection string, filter interface{}, update interface{}) string {
 	return GenerateRawQueryWithFilter(collection, UpdateOne, filter, update)
+}
+
+// GenerateFindOneAndUpdateQuery is a convenience function for findOneAndUpdate operations
+func GenerateFindOneAndUpdateQuery(collection string, filter interface{}, update interface{}) string {
+	return GenerateRawQueryWithFilter(collection, FindOneAndUpdate, filter, update)
 }
 
 // GenerateDeleteQuery is a convenience function for deleteOne operations

@@ -78,6 +78,8 @@ type ICtx interface {
 
 	GetFile(name string) (*multipart.FileHeader, error)
 	GetFiles(name string) ([]*multipart.FileHeader, error)
+
+	Set(key CtxKey, value any) 
 }
 
 // context.Context interface methods
@@ -174,6 +176,9 @@ func (c *Ctx) SessionID() string {
 	c.Log.SetSessionID(sid)
 
 	return sid
+}
+func (c *Ctx) Set(key CtxKey, value any) {
+	c.Req = c.Req.WithContext(context.WithValue(c.Req.Context(), key, value))
 }
 func (c *Ctx) SetSessionID(sid string) {
 	c.Req = c.Req.WithContext(context.WithValue(c.Req.Context(), SessionID, sid))

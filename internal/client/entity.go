@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"time"
+
+	"github.com/sing3demons/oauth/kp/pkg/pkce"
 )
 
 type OIDCClient struct {
@@ -23,7 +25,7 @@ type OIDCClient struct {
 	TokenEndpointAuthMethod string    `bson:"token_endpoint_auth_method" json:"token_endpoint_auth_method,omitempty"`
 	RequirePKCE             bool      `bson:"require_pkce" json:"require_pkce,omitempty"`
 	PKCECodeChallengeMethod string    `bson:"pkce_code_challenge_method" json:"pkce_code_challenge_method,omitempty"`
-	IDTokenAlg              string    `bson:"id_token_alg" json:"-"`
+	IDTokenAlg              string    `bson:"id_token_alg" json:"id_token_alg"`
 	SubjectType             string    `bson:"subject_type" json:"-"`
 	AccessTokenTTL          int       `bson:"access_token_ttl" json:"-"`
 	RefreshTokenTTL         int       `bson:"refresh_token_ttl" json:"-"`
@@ -112,7 +114,6 @@ func (c *OIDCClient) ValidateClientType() error {
 	return nil
 }
 
-
 func (c *OIDCClient) ValidateRedirectURI(uri string) bool {
 	for _, ruri := range c.RedirectUris {
 		if ruri == uri {
@@ -120,4 +121,38 @@ func (c *OIDCClient) ValidateRedirectURI(uri string) bool {
 		}
 	}
 	return false
+}
+
+func (c *OIDCClient) ValidateToken(clientSecret, codeVerifier string) error {
+	if clientSecret == "" && codeVerifier == "" {
+		return errors.New("either client_secret or code_verifier must be provided")
+	}
+
+	if clientSecret != "" {
+		if c.ClientSecret != clientSecret {
+			return errors.New("invalid client secret")
+		}
+	}
+	// pkce
+	if codeVerifier != "" {
+		if !c.RequirePKCE {
+			return errors.New("pkce not required for this client")
+		}
+		// no code challenge method stored in client, cannot verify
+		if c.PKCECodeChallengeMethod == "" {
+			return errors.New("pkce code challenge method not set for this client")
+		}
+		// verify code verifier
+
+		pkced, err := pkce.EncodeCodeVerifier(c.PKCECodeChallengeMethod, codeVerifier)
+		if err != nil {
+			return err
+		}
+		// compare
+		if pkced != codeVerifier {
+			return errors.New("invalid code verifier")
+		}
+	}
+
+	return nil
 }

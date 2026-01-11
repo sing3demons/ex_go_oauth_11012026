@@ -25,3 +25,28 @@ Content-Type: application/json
 GET {{uri}}/clients/cd4e7670-5e96-4a3f-addb-51fa43db86fc HTTP/1.1
 
 ### http://localhost:8081/oauth/authorize?response_type=code&client_id=1e95c08f-d409-446c-be32-c7d1f1930120&redirect_uri=http://localhost/callback&scope=openid%20profile&state=xyz
+
+POST {{uri}}/oauth/token HTTP/1.1
+Content-Type: application/json
+
+{
+    "client_id": "1e95c08f-d409-446c-be32-c7d1f1930120",
+    "state": "xyz",
+    "client_secret": "XxuvgtF4UjQgR7I4RgIBJS0RC6WkCVIdRN_W8MzY7kk",
+    "code": "63mGjIsy8fd4aa27-6f44-425a-994b-881d0113721b",
+    "grant_type": "authorization_code",
+    "redirect_uri": "http://localhost/callback"
+}
+
+###
+POST {{uri}}/oauth/token HTTP/1.1
+Content-Type: application/json
+
+{
+    "client_id": "1e95c08f-d409-446c-be32-c7d1f1930120",
+    "state": "xyz",
+    "client_secret": "XxuvgtF4UjQgR7I4RgIBJS0RC6WkCVIdRN_W8MzY7kk",
+    "code": "eyJhbGciOiJSUzI1NiIsImtpZCI6IlJTMjU2LVFMYlBic0RfaTVrIiwidHlwIjoiSldUIn0.eyJhdWQiOiIxZTk1YzA4Zi1kNDA5LTQ0NmMtYmUzMi1jN2QxZjE5MzAxMjAiLCJjbGllbnRfaWQiOiIxZTk1YzA4Zi1kNDA5LTQ0NmMtYmUzMi1jN2QxZjE5MzAxMjAiLCJleHAiOjE3NjgyMTE5MTMsImlhdCI6MTc2ODEyNTUxMywiaXNzIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgxIiwianRpIjoiOWRlMGQ4N2EtMTU4ZC00NzlhLTg2ZTctNjZlNDUxMWI4MWRjOGZkNGFhMjctNmY0NC00MjVhLTk5NGItODgxZDAxMTM3MjFiIiwic2NvcGUiOiIiLCJzdWIiOiJ0b2tlbl9hdXRoZW50aWNhdGlvbl9jb2RlIn0.TTWZSEc0QugUUN71rVs78w1K_MmDitgMbVUXaIpLM1srIpHubuX3fk4Xf0Zie1qFPH8-ahdO6lzB12ofDewbsACVnfdXlFla7cq9EnX0gEh1EkyhAnDfnVagYg_lwibmyTLETW_j6QdyKAvZr1UgmNGBze1LZMbxaP-Jn-N55SwfQG9enptcK9YbGcUghxELDeQbL1R1uppJMFq-RfvJjBM1x5j6N6wsH_WXKLfCvKHhMbhqCdEdmWi4edxx21-jywPtS0OXD5mKTjVAAqorWlnaJqjOKK5iuC5VuJerwE3gbxQcufue-T6EbI-QTAdiCsuMkFBGEIQdRx97BRu2Vg",
+    "grant_type": "refresh_token",
+    "redirect_uri": "http://localhost/callback"
+}
