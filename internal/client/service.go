@@ -23,11 +23,15 @@ func (s *ClientService) GetClientByID(c context.Context, clientID string) (OIDCC
 }
 
 // authCode.AuthCode.CodeChallengeMethod, authCode.AuthCode.CodeChallenge
-func (s *ClientService) ValidateClientToken(c context.Context, clientID, clientSecret, codeVerifier string) error {
+func (s *ClientService) ValidateClientToken(c context.Context, clientID, clientSecret, codeVerifier string) (OIDCClient, error) {
 	client, err := s.repo.FindClientByID(c, clientID)
 	if err != nil {
-		return err
+		return OIDCClient{}, err
 	}
 
-	return client.ValidateToken(clientSecret, codeVerifier)
+	if err := client.ValidateToken(clientSecret, codeVerifier); err != nil {
+		return OIDCClient{}, err
+	}
+
+	return client, nil
 }

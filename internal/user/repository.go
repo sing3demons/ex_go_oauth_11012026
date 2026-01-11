@@ -127,19 +127,19 @@ func (r *UserRepository) FindUserByUsername(c context.Context, username string) 
 		result["data"] = user
 		maskingDbResponse = []logger.MaskingRule{
 			{
-				Field: "data.Email",
+				Field: "data.email",
 				Type:  logger.MaskingTypeEmail,
 			},
 			{
-				Field: "data.Username",
+				Field: "data.username",
 				Type:  logger.MaskingTypePartial,
 			},
 			{
-				Field: "data.Password",
+				Field: "data.password",
 				Type:  logger.MaskingTypeFull,
 			},
 			{
-				Field: "data.Pin",
+				Field: "data.pin",
 				Type:  logger.MaskingTypeFull,
 			},
 		}

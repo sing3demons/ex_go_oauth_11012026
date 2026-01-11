@@ -60,22 +60,7 @@ func main() {
 	app := kp.NewMicroservice(cfg, parentLogger)
 	// Global panic recovery
 	app.Use(kp.RecoverMiddleware)
-	app.GET("/oauth/register", func(ctx *kp.Ctx) {
-		ctx.L("render_register_page")
-
-		authorizeRequest := oauth.AuthorizeRequest{}
-		if err := ctx.BindQuery(&authorizeRequest); err != nil {
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
-			return
-		}
-
-		ctx.Render("register", map[string]any{
-			"SessionID":   authorizeRequest.SessionID,
-			"ClientID":    authorizeRequest.ClientID,
-			"State":       authorizeRequest.State,
-			"RedirectURI": authorizeRequest.RedirectURI,
-		})
-	})
+	app.GET("/oauth/register", authHandler.RenderLoginPage)
 
 	app.GET("/oauth/authorize", authHandler.AuthorizeHandler)
 	app.POST("/oauth/register", authHandler.Register)

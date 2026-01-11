@@ -585,15 +585,20 @@ func (l *Logger) Detail(level LogLevel, actionInfo logAction.LoggerAction, data 
 	if len(l.metadata) > 0 {
 		if dep, ok := l.metadata["dependency"].(string); ok {
 			dependency = dep
+			// clean up from metadata to avoid duplication
+			delete(l.metadata, "dependency")
 		}
 		if rt, ok := l.metadata["responseTime"].(int64); ok {
 			responseTime = rt
+			delete(l.metadata, "responseTime")
 		}
 		if rc, ok := l.metadata["resultCode"].(string); ok {
 			resultCode = rc
+			delete(l.metadata, "resultCode")
 		}
 		if rf, ok := l.metadata["resultFlag"].(string); ok {
 			resultFlag = rf
+			delete(l.metadata, "resultFlag")
 		}
 	}
 	l.mu.RUnlock()

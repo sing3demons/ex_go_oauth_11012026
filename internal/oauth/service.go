@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -199,6 +200,17 @@ func (s *OAuthService) ValidateAuthorizationCode(ctx context.Context, code strin
 
 // grant_type=authorization_code
 func (s *OAuthService) ExchangeAuthorizationCode(ctx context.Context, body TokenRequest) (accessToken string, refreshToken string, idToken string, err error) {
+	clientModel, err := s.clientService.ValidateClientToken(ctx, body.ClientID, body.ClientSecret, body.CodeVerifier)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	// check if grant_type is allowed
+	GRANT_TYPE_ALLOWED := slices.Contains(clientModel.GrantTypes, body.GrantType)
+	if !GRANT_TYPE_ALLOWED {
+		return "", "", "", fmt.Errorf("unauthorized_client: grant_type not allowed")
+	}
+
 	authCode, err := s.authCodeRepository.FindAuthorizationCodeByID(ctx, body.Code)
 	if err != nil {
 		return "", "", "", err
@@ -206,11 +218,6 @@ func (s *OAuthService) ExchangeAuthorizationCode(ctx context.Context, body Token
 
 	if body.ClientID != authCode.AuthCode.ClientID {
 		return "", "", "", fmt.Errorf("invalid_client")
-	}
-
-	//
-	if err := s.clientService.ValidateClientToken(ctx, body.ClientID, body.ClientSecret, body.CodeVerifier); err != nil {
-		return "", "", "", err
 	}
 
 	if authCode.Used {
@@ -227,11 +234,6 @@ func (s *OAuthService) ExchangeAuthorizationCode(ctx context.Context, body Token
 
 	if authCode.AuthCode.RedirectURI != body.RedirectURI {
 		return "", "", "", fmt.Errorf("redirect URI mismatch")
-	}
-
-	// Mark the authorization code as used
-	if err := s.authCodeRepository.MarkAuthorizationCodeAsUsed(ctx, body.Code); err != nil {
-		return "", "", "", err
 	}
 
 	signingKey, err := s.jwksService.GetKey(ctx, authCode.IDTokenAlg)
@@ -321,6 +323,13 @@ func (s *OAuthService) ExchangeAuthorizationCode(ctx context.Context, body Token
 		ExpiresAt: currentTime.Add(24 * time.Hour),
 		ExpiresIn: currentTime.Add(24 * time.Hour).Unix(),
 	}
+
+	// Mark the authorization code as used
+	if err := s.authCodeRepository.MarkAuthorizationCodeAsUsed(ctx, body.Code); err != nil {
+		return "", "", "", err
+	}
+
+	s.sessionRepository.DeleteByID(ctx, authCode.AuthCode.SessionID)
 
 	if err := s.tokenRepository.UpsertTokens(ctx, accessTokenRecord, refreshTokenRecord); err != nil {
 		return "", "", "", err
@@ -454,7 +463,6 @@ func (s *OAuthService) RefreshToken(ctx context.Context, body TokenRequest) (acc
 	}
 
 	s.tokenRepository.DeleteTokens(ctx, id)
-
 
 	if err := s.tokenRepository.UpsertTokens(ctx, accessTokenRecord, refreshTokenRecord); err != nil {
 		return "", "", "", err

@@ -8,6 +8,7 @@ import (
 	"github.com/sing3demons/oauth/kp/internal/client"
 	"github.com/sing3demons/oauth/kp/internal/config"
 	"github.com/sing3demons/oauth/kp/pkg/kp"
+	"github.com/sing3demons/oauth/kp/pkg/logger"
 	"github.com/sing3demons/oauth/kp/pkg/validate"
 )
 
@@ -178,7 +179,24 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 }
 
 func (h *AuthHandler) Login(ctx *kp.Ctx) {
-	ctx.L("login")
+	maskingRule := []logger.MaskingRule{
+		{
+			Field: "body.password",
+			Type:  logger.MaskingTypeFull,
+		},
+		{
+			Field: "body.pin",
+			Type:  logger.MaskingTypeFull,
+		},
+		{
+			Field: "body.username",
+			Type:  logger.MaskingTypePartial,
+		}, {
+			Field: "body.email",
+			Type:  logger.MaskingTypeEmail,
+		},
+	}
+	ctx.L("login", maskingRule...)
 
 	authorizeRequest := AuthorizeRequest{}
 	if err := ctx.BindQuery(&authorizeRequest); err != nil {
@@ -226,6 +244,23 @@ func (h *AuthHandler) Login(ctx *kp.Ctx) {
 	}
 
 	ctx.Redirect(body.RedirectToAuthorize(h.cfg.BaseURL, map[string]string{"request": request}))
+}
+
+func (h *AuthHandler) RenderLoginPage(ctx *kp.Ctx) {
+	ctx.L("render_register_page")
+
+	authorizeRequest := AuthorizeRequest{}
+	if err := ctx.BindQuery(&authorizeRequest); err != nil {
+		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+		return
+	}
+
+	ctx.Render("register", map[string]any{
+		"SessionID":   authorizeRequest.SessionID,
+		"ClientID":    authorizeRequest.ClientID,
+		"State":       authorizeRequest.State,
+		"RedirectURI": authorizeRequest.RedirectURI,
+	})
 }
 
 func (h *AuthHandler) Register(ctx *kp.Ctx) {
