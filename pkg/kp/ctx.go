@@ -16,7 +16,6 @@ import (
 	"os"
 	"reflect"
 	"regexp"
-	"runtime/debug"
 	"strings"
 	"time"
 
@@ -190,53 +189,18 @@ func (c *Ctx) genTransactionID() string {
 	return tid
 }
 
-func newMuxContext(w http.ResponseWriter, r *http.Request, cfg *config.AppConfig, csLog logger.ILogger) ICtx {
-	start := time.Now()
+func newMuxContext(w http.ResponseWriter, r *http.Request, cfg *config.AppConfig, log logger.ILogger) ICtx {
+	csLog := log.Clone()
+	// set to context
+	r = r.WithContext(context.WithValue(r.Context(), logger.LoggerKey, csLog))
 	myCtx := &Ctx{
 		Res:      w,
 		Req:      r,
 		Cfg:      cfg,
-		Log:      csLog.Clone(),
+		Log:      csLog,
 		validate: validator.New(),
 	}
 	myCtx.genTransactionID()
-
-	defer func() {
-		if rec := recover(); rec != nil {
-			// default
-			status := http.StatusInternalServerError
-			msg := "internal_server_error"
-
-			// convert panic → error
-			var err error
-			switch v := rec.(type) {
-			case error:
-				err = v
-			default:
-				err = fmt.Errorf("%v", v)
-			}
-
-			// log panic
-			csLog.Error(
-				logAction.EXCEPTION("panic recovered"),
-				map[string]any{
-					"method":   r.Method,
-					"path":     r.URL.Path,
-					"panic":    err.Error(),
-					"duration": time.Since(start).Milliseconds(),
-					"stack":    string(debug.Stack()),
-				},
-			)
-
-			// response
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(status)
-			json.NewEncoder(w).Encode(map[string]any{
-				"error": msg,
-			})
-			csLog.FlushError(status, msg)
-		}
-	}()
 
 	return myCtx
 }

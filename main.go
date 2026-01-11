@@ -55,6 +55,8 @@ func main() {
 	authHandler := oauth.NewAuthHandler(cfg, clientService, oauthService)
 
 	app := kp.NewMicroservice(cfg, parentLogger)
+	// Global panic recovery
+	app.Use(kp.RecoverMiddleware)
 	app.GET("/oauth/register", func(ctx *kp.Ctx) {
 		ctx.L("render_register_page")
 

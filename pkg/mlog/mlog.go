@@ -1,16 +1,8 @@
 package mlog
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"regexp"
-	"strings"
 
-	"github.com/sing3demons/oauth/kp/pkg/logAction"
 	"github.com/sing3demons/oauth/kp/pkg/logger"
 )
 
@@ -23,62 +15,5 @@ func L(ctx context.Context) logger.ILogger {
 		return logger.NewLogger("", "")
 	}
 
-	return l
-}
-
-type ResponseWithLogger struct {
-	w      http.ResponseWriter
-	r      *http.Request
-	logger logger.ILogger
-}
-
-func InitLog(r *http.Request, userCase, xSid string, masking ...logger.MaskingRule) logger.ILogger {
-	l := L(r.Context())
-	l.SetSessionID(xSid)
-	l.SetUseCase(userCase)
-
-	headers := make(map[string]string)
-	for key, values := range r.Header {
-		if len(values) > 0 {
-			headers[key] = strings.Join(values, ", ")
-		} else {
-			headers[key] = ""
-		}
-	}
-
-	body := new(map[string]any)
-	if r.Method != http.MethodGet {
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			body = nil
-		}
-
-		// Restore the request body so it can be read again later
-		r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-		json.Unmarshal(bodyBytes, &body)
-	}
-	params := make(map[string]string)
-
-	// pattern := r.PathPattern() // "/users/{id}/orders/{orderId}"
-	// Since http.Request does not have PathPattern, set pattern to r.URL.Path or another available value
-	pattern := r.URL.Path
-	re := regexp.MustCompile(`\{(\w+)\}`)
-	matches := re.FindAllStringSubmatch(pattern, -1)
-
-	// PathValue is also not available on *http.Request, so this section is commented out or needs to be replaced with custom logic if needed
-	for _, m := range matches {
-		key := m[1]
-		params[key] = r.PathValue(key)
-	}
-
-	l.Info(logAction.INBOUND(fmt.Sprintf("client %s %s server", r.Method, r.URL.String())), map[string]any{
-		"method":  r.Method,
-		"url":     r.URL.String(),
-		"headers": headers,
-		"query":   r.URL.Query(),
-		"body":    body,
-		"params":  params,
-		"remote":  r.RemoteAddr,
-	}, masking...)
 	return l
 }
