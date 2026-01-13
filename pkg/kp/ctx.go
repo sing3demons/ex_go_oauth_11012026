@@ -74,12 +74,12 @@ type ICtx interface {
 	Redirect(urlStr string)
 	RedirectWithError(rawURL string, code int, v any, err error)
 	Render(path string, data map[string]any)
-	JSONError(code int, v any, err error)
+	JSONError(customError *Error)
 
 	GetFile(name string) (*multipart.FileHeader, error)
 	GetFiles(name string) ([]*multipart.FileHeader, error)
 
-	Set(key CtxKey, value any) 
+	Set(key CtxKey, value any)
 }
 
 // context.Context interface methods
@@ -580,7 +580,11 @@ func (c *Ctx) Render(path string, data map[string]any) {
 	c.Log.Flush(http.StatusOK, "success")
 }
 
-func (c *Ctx) JSONError(code int, v any, err error) {
+func (c *Ctx) JSONError(customError *Error) {
+	code := customError.StatusCode
+	v := customError.Json()
+	err := customError.Unwrap()
+
 	c.Res.Header().Set("Content-Type", "application/json")
 	c.Res.Header().Set("x-session-id", c.Log.SessionID())
 	c.Res.WriteHeader(code)
@@ -594,13 +598,13 @@ func (c *Ctx) JSONError(code int, v any, err error) {
 
 	// err may be nil in some call sites; avoid panic on err.Error()
 	if err != nil {
-		c.Log.AddMetadata("ErrorCode", err.Error())
+		c.Log.AddMetadata("ErrorCause", err.Error())
 		c.Log.FlushError(code, c.statusMessage(code))
 		return
 	}
 
 	// Fallback when no error object provided
-	c.Log.AddMetadata("ErrorCode", "unknown")
+	c.Log.AddMetadata("ErrorCause", "unknown")
 	c.Log.FlushError(code, c.statusMessage(code))
 }
 func (c *Ctx) statusMessage(code int) string {

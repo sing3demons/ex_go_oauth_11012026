@@ -20,6 +20,7 @@ import (
 	"github.com/sing3demons/oauth/kp/internal/session"
 	"github.com/sing3demons/oauth/kp/internal/token"
 	"github.com/sing3demons/oauth/kp/internal/user"
+	"github.com/sing3demons/oauth/kp/pkg/kp"
 	"github.com/sing3demons/oauth/kp/pkg/mlog"
 )
 
@@ -76,7 +77,11 @@ func (s *OAuthService) Login(ctx context.Context, body LoginRequest, alg string)
 	}
 
 	if err := body.CheckPasswordLogin(user.Password); err != nil {
-		return "", err
+		return "", &kp.Error{
+			Message:    "invalid_credentials",
+			StatusCode: 401,
+			Err:        err,
+		}
 	}
 
 	if err := s.sessionRepository.UpdateState(ctx, body.SessionID, "login", body.Username); err != nil {
@@ -85,7 +90,11 @@ func (s *OAuthService) Login(ctx context.Context, body LoginRequest, alg string)
 
 	data, err := s.Encrypt(ctx, alg, fmt.Sprintf("%s|%s|%s", body.SessionID, body.Username, user.ID))
 	if err != nil {
-		return "", err
+		return "", &kp.Error{
+			Message:    "encryption_failed",
+			StatusCode: 500,
+			Err:        err,
+		}
 	}
 
 	return data, nil

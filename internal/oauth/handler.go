@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -30,28 +31,56 @@ func NewAuthHandler(cfg *config.AppConfig, clientService *client.ClientService, 
 func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 	ctx.L("authorize")
 	sessionId := ctx.SessionID()
+	var customError *kp.Error
 
 	// parse query params
 	authorizeRequest := AuthorizeRequest{}
 	if err := ctx.BindQuery(&authorizeRequest); err != nil {
-		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
 	// check client existence
 	clientModel, err := h.clientService.GetClientByID(ctx, authorizeRequest.ClientID)
 	if err != nil {
-		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_client"}, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "server_error",
+				StatusCode: http.StatusInternalServerError,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 	if err := clientModel.ValidatePKCE(authorizeRequest.CodeChallenge, authorizeRequest.CodeChallengeMethod); err != nil {
-		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
 	if authorizeRequest.RedirectURI != "" {
 		if !clientModel.ValidateRedirectURI(authorizeRequest.RedirectURI) {
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_redirect_uri"}, err)
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        errors.New("redirect URI mismatch"),
+			}
+
+			ctx.JSONError(customError)
 			return
 		}
 	}
@@ -59,47 +88,110 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 	if authorizeRequest.Request != "" {
 		sessionCode, err := h.oauthService.GetSessionCodeByID(ctx, sessionId)
 		if err != nil || sessionCode == nil {
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_session"}, err)
+			if err != nil {
+				if !errors.As(err, &customError) {
+					customError = &kp.Error{
+						Message:    "invalid_request",
+						StatusCode: http.StatusBadRequest,
+						Err:        err,
+					}
+				}
+			} else {
+				customError = &kp.Error{
+					Message:    "invalid_request",
+					StatusCode: http.StatusBadRequest,
+					Err:        errors.New("session code not found"),
+				}
+			}
+			ctx.JSONError(customError)
 			return
 		}
 
 		if sessionCode.ClientID != authorizeRequest.ClientID {
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        errors.New("client ID mismatch"),
+			}
+			ctx.JSONError(customError)
 			return
 		}
 
 		if sessionCode.Status != "login" {
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_session_state"}, err)
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        err,
+			}
+			ctx.JSONError(customError)
 			return
 		}
 
 		// decrypt request object
 		data, err := h.oauthService.Decrypt(ctx, clientModel.IDTokenAlg, authorizeRequest.Request)
 		if err != nil {
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request_object"}, err)
+			if !errors.As(err, &customError) {
+				customError = &kp.Error{
+					Message:    "invalid_request",
+					StatusCode: http.StatusBadRequest,
+					Err:        err,
+				}
+			}
+			ctx.JSONError(customError)
 			return
 		}
 		// split data to get sessionID, username, userID
 		parts := strings.SplitN(data, "|", 3)
 		if len(parts) != 3 {
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        errors.New("invalid request object format"),
+			}
+			ctx.JSONError(customError)
 			return
 		}
 		reqSessionID := parts[0]
 		if reqSessionID != sessionId {
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_session"}, err)
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        errors.New("session ID mismatch"),
+			}
+			ctx.JSONError(customError)
 			return
 		}
 		username := parts[1]
 		if username != sessionCode.LoginHint {
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        errors.New("username mismatch"),
+			}
+			ctx.JSONError(customError)
 			return
 		}
 		userID := parts[2]
 		// findUserByID
 		userModel, err := h.oauthService.userRepository.FindUserByUsername(ctx, username)
 		if err != nil || userModel.ID != userID {
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_user"}, err)
+			if err != nil {
+				if !errors.As(err, &customError) {
+					customError = &kp.Error{
+						Message:    "invalid_request",
+						StatusCode: http.StatusBadRequest,
+						Err:        err,
+					}
+				}
+			} else {
+				customError = &kp.Error{
+					Message:    "invalid_request",
+					StatusCode: http.StatusBadRequest,
+					Err:        errors.New("user ID mismatch"),
+				}
+			}
+			ctx.JSONError(customError)
+
 			return
 		}
 
@@ -132,7 +224,14 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 			ISS:                 h.cfg.OidcConfig.Issuer,
 		})
 		if err != nil {
-			ctx.JSONError(http.StatusInternalServerError, map[string]string{"error": "server_error"}, err)
+			if !errors.As(err, &customError) {
+				customError = &kp.Error{
+					Message:    "invalid_request",
+					StatusCode: http.StatusBadRequest,
+					Err:        err,
+				}
+			}
+			ctx.JSONError(customError)
 			return
 		}
 
@@ -165,7 +264,14 @@ func (h *AuthHandler) AuthorizeHandler(ctx *kp.Ctx) {
 
 	if err := h.oauthService.CreateSessionCode(ctx, sessionId, clientModel.IDTokenAlg, authorizeRequest); err != nil {
 		if err.Error() != "duplicate" {
-			ctx.JSONError(http.StatusInternalServerError, map[string]string{"error": "server_error"}, err)
+			if !errors.As(err, &customError) {
+				customError = &kp.Error{
+					Message:    "server_error",
+					StatusCode: http.StatusInternalServerError,
+					Err:        err,
+				}
+			}
+			ctx.JSONError(customError)
 			return
 		}
 	}
@@ -198,9 +304,18 @@ func (h *AuthHandler) Login(ctx *kp.Ctx) {
 	}
 	ctx.L("login", maskingRule...)
 
+	var customError *kp.Error
+
 	authorizeRequest := AuthorizeRequest{}
 	if err := ctx.BindQuery(&authorizeRequest); err != nil {
-		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -210,13 +325,27 @@ func (h *AuthHandler) Login(ctx *kp.Ctx) {
 
 	var body LoginRequest
 	if err := ctx.Bind(&body); err != nil {
-		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
 	sessionCode, err := h.oauthService.GetSessionCodeByID(ctx, sessionId)
 	if err != nil {
-		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_session"}, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -239,7 +368,14 @@ func (h *AuthHandler) Login(ctx *kp.Ctx) {
 			return
 		}
 
-		ctx.JSONError(http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"}, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "invalid_credentials",
+				StatusCode: http.StatusUnauthorized,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -248,10 +384,18 @@ func (h *AuthHandler) Login(ctx *kp.Ctx) {
 
 func (h *AuthHandler) RenderLoginPage(ctx *kp.Ctx) {
 	ctx.L("render_register_page")
+	var customError *kp.Error
 
 	authorizeRequest := AuthorizeRequest{}
 	if err := ctx.BindQuery(&authorizeRequest); err != nil {
-		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -264,12 +408,21 @@ func (h *AuthHandler) RenderLoginPage(ctx *kp.Ctx) {
 }
 
 func (h *AuthHandler) Register(ctx *kp.Ctx) {
+	var customError *kp.Error
+
 	ctx.L("register")
 	sessionId := ctx.SessionID()
 
 	authorizeRequest := AuthorizeRequest{}
 	if err := ctx.BindQuery(&authorizeRequest); err != nil {
-		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -277,13 +430,27 @@ func (h *AuthHandler) Register(ctx *kp.Ctx) {
 
 	var body RegisterRequest
 	if err := ctx.Bind(&body); err != nil {
-		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
 	sessionCode, err := h.oauthService.GetSessionCodeByID(ctx, sessionId)
 	if err != nil {
-		ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_session"}, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "invalid_request",
+				StatusCode: http.StatusBadRequest,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -293,7 +460,14 @@ func (h *AuthHandler) Register(ctx *kp.Ctx) {
 	// check user credentials here
 	request, err := h.oauthService.RegisterUser(ctx, body, sessionCode.IDTokenAlg) // not_found go to register
 	if err != nil {
-		ctx.JSONError(http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"}, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "invalid_credentials",
+				StatusCode: http.StatusUnauthorized,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -312,13 +486,19 @@ type TokenRequest struct {
 
 // Token endpoint handler can be added here
 func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
+	var customError *kp.Error
 	method := ctx.Req.Method
 	cmd := "token"
 	// validate method here
 	// [get,post]
 	if method != http.MethodGet && method != http.MethodPost {
 		ctx.L(cmd)
-		ctx.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
+		customError = &kp.Error{
+			Message:    "invalid_request",
+			StatusCode: http.StatusBadRequest,
+			Err:        errors.New("invalid method"),
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
@@ -328,21 +508,35 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 	case http.MethodPost:
 		if err := ctx.Bind(&body); err != nil {
 			ctx.L(cmd)
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+			if !errors.As(err, &customError) {
+				customError = &kp.Error{
+					Message:    "invalid_request",
+					StatusCode: http.StatusBadRequest,
+					Err:        err,
+				}
+			}
+			ctx.JSONError(customError)
 			return
 		}
 	case http.MethodGet:
 		if err := ctx.BindQuery(&body); err != nil {
 			ctx.L(cmd)
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_request"}, err)
+			if !errors.As(err, &customError) {
+				customError = &kp.Error{
+					Message:    "invalid_request",
+					StatusCode: http.StatusBadRequest,
+					Err:        err,
+				}
+			}
+			ctx.JSONError(customError)
 			return
 		}
 	default:
 		ctx.L(cmd)
-		ctx.JSONError(http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"}, nil)
+		ctx.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
 		return
 	}
-	
+
 	switch body.GrantType {
 	case "authorization_code":
 		cmd = "token_authcode"
@@ -359,12 +553,26 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 			decoded, err := base64.StdEncoding.DecodeString(parts[1])
 			if err != nil {
 				ctx.L(cmd)
-				ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_authorization_header"}, err)
+				if !errors.As(err, &customError) {
+					customError = &kp.Error{
+						Message:    "invalid_request",
+						StatusCode: http.StatusBadRequest,
+						Err:        err,
+					}
+				}
+				ctx.JSONError(customError)
 				return
 			}
 			credParts := strings.SplitN(string(decoded), ":", 2)
 			if len(credParts) != 2 {
-				ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_authorization_header"}, err)
+				if !errors.As(err, &customError) {
+					customError = &kp.Error{
+						Message:    "invalid_request",
+						StatusCode: http.StatusBadRequest,
+						Err:        errors.New("invalid authorization header format"),
+					}
+				}
+				ctx.JSONError(customError)
 				return
 			}
 			clientID := credParts[0]
@@ -372,7 +580,12 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 			if body.ClientID != "" {
 				if body.ClientID != clientID {
 					ctx.L(cmd)
-					ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_client"}, nil)
+					customError = &kp.Error{
+						Message:    "invalid_client",
+						StatusCode: http.StatusBadRequest,
+						Err:        errors.New("client ID mismatch"),
+					}
+					ctx.JSONError(customError)
 					return
 				}
 			} else {
@@ -381,7 +594,14 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 			if body.ClientSecret != "" {
 				if body.ClientSecret != clientSecret {
 					ctx.L(cmd)
-					ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_client"}, nil)
+					if !errors.As(err, &customError) {
+						customError = &kp.Error{
+							Message:    "invalid_client",
+							StatusCode: http.StatusBadRequest,
+							Err:        errors.New("client secret mismatch"),
+						}
+					}
+					ctx.JSONError(customError)
 					return
 				}
 			} else {
@@ -397,7 +617,14 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 		// support method get post
 		accessToken, refreshToken, idToken, err := h.oauthService.ExchangeAuthorizationCode(ctx, cmd, body)
 		if err != nil {
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_grant"}, err)
+			if !errors.As(err, &customError) {
+				customError = &kp.Error{
+					Message:    "invalid_grant",
+					StatusCode: http.StatusBadRequest,
+					Err:        err,
+				}
+			}
+			ctx.JSONError(customError)
 			return
 		}
 
@@ -421,7 +648,14 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 		// implement refresh token flow here
 		accessToken, refreshToken, idToken, err := h.oauthService.RefreshToken(ctx, cmd, body)
 		if err != nil {
-			ctx.JSONError(http.StatusBadRequest, map[string]string{"error": "invalid_grant"}, err)
+			if !errors.As(err, &customError) {
+				customError = &kp.Error{
+					Message:    "invalid_grant",
+					StatusCode: http.StatusBadRequest,
+					Err:        err,
+				}
+			}
+			ctx.JSONError(customError)
 			return
 		}
 
@@ -429,8 +663,6 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 			"access_token": accessToken,
 			"token_type":   "Bearer",
 			"expires_in":   3600,
-			// "refresh_token": refreshToken,
-			// "id_token":      idToken,
 		}
 		if refreshToken != "" {
 			data["refresh_token"] = refreshToken
@@ -444,12 +676,22 @@ func (h *AuthHandler) TokenHandler(ctx *kp.Ctx) {
 	case "urn:ietf:params:oauth:grant-type:token-exchange":
 		// support method post
 		if method != http.MethodPost {
-			ctx.JSON(http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
+			customError = &kp.Error{
+				Message:    "method_not_allowed",
+				StatusCode: http.StatusMethodNotAllowed,
+				Err:        errors.New("not allowed method for token exchange"),
+			}
+			ctx.JSONError(customError)
 			return
 		}
 		// implement token exchange flow here
 	default:
-		ctx.JSON(http.StatusNotImplemented, map[string]string{"error": "unsupported_grant_type"})
+		customError = &kp.Error{
+			Message:    "unsupported_grant_type",
+			StatusCode: http.StatusBadRequest,
+			Err:        errors.New("grant type not supported"),
+		}
+		ctx.JSONError(customError)
 		return
 	}
 }

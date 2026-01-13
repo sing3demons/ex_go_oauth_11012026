@@ -1,6 +1,7 @@
 package discover
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/sing3demons/oauth/kp/internal/config"
@@ -25,12 +26,17 @@ func (h *DiscoverHandler) OIDCHandler(ctx *kp.Ctx) {
 func (h *DiscoverHandler) JwksHandler(ctx *kp.Ctx) {
 	// /.well-known/jwks.json
 	ctx.L("get_jwks")
-	// response := mlog.NewResponseWithLogger(w, r, "get_jwks", uuid.NewString())
+	var customError *kp.Error
 	jwks, err := h.jwksService.GetJWKS(ctx)
 	if err != nil {
-		ctx.JSONError(http.StatusInternalServerError, map[string]string{
-			"error": "server_error",
-		}, err)
+		if !errors.As(err, &customError) {
+			customError = &kp.Error{
+				Message:    "internal_server",
+				StatusCode: http.StatusInternalServerError,
+				Err:        err,
+			}
+		}
+		ctx.JSONError(customError)
 		return
 	}
 
