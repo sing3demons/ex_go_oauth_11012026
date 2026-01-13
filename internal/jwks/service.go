@@ -11,12 +11,14 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/sing3demons/oauth/kp/internal/config"
+	"github.com/sing3demons/oauth/kp/pkg/kp"
 )
 
 type JWTService struct {
@@ -46,19 +48,31 @@ func (s *JWTService) GetJWKS(c context.Context) (JWKS, error) {
 		case JWTAlgorithmRS256:
 			pubKey, ok := pubKeyAny.(*rsa.PublicKey)
 			if !ok {
-				return JWKS{}, fmt.Errorf("invalid RSA public key")
+				return JWKS{}, &kp.Error{
+					Message:    "server_error",
+					StatusCode: http.StatusInternalServerError,
+					Err:        fmt.Errorf("invalid RSA public key"),
+				}
 			}
 			jwk := RSAJWK(key.KID, string(key.Algorithm), pubKey)
 			keys = append(keys, jwk)
 		case JWTAlgorithmES256:
 			pubKey, ok := pubKeyAny.(*ecdsa.PublicKey)
 			if !ok {
-				return JWKS{}, fmt.Errorf("invalid ECDSA public key")
+				return JWKS{}, &kp.Error{
+					Message:    "server_error",
+					StatusCode: http.StatusInternalServerError,
+					Err:        fmt.Errorf("invalid EC public key"),
+				}
 			}
 			jwk := ECJWK(key.KID, string(key.Algorithm), pubKey)
 			keys = append(keys, jwk)
 		default:
-			return JWKS{}, fmt.Errorf("unsupported algorithm: %s", key.Algorithm)
+			return JWKS{}, &kp.Error{
+				Message:    "server_error",
+				StatusCode: http.StatusInternalServerError,
+				Err:        fmt.Errorf("unsupported algorithm: %s", key.Algorithm),
+			}
 		}
 	}
 	return JWKS{Keys: keys}, nil
@@ -72,7 +86,11 @@ func (s *JWTService) GenerateJwtToken(signingKey SigningKey, payload map[string]
 	case "ES256":
 		algorithm = jwt.SigningMethodES256
 	default:
-		return "", fmt.Errorf("unsupported algorithm: %s", signingKey.Algorithm)
+		return "", &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        fmt.Errorf("unsupported algorithm: %s", signingKey.Algorithm),
+		}
 	}
 
 	if payload["iss"] == nil {
@@ -85,7 +103,11 @@ func (s *JWTService) GenerateJwtToken(signingKey SigningKey, payload map[string]
 		payload["iat"] = time.Now().Unix()
 	}
 	if payload["exp"] == nil {
-		return "", fmt.Errorf("missing exp in payload")
+		return "", &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        fmt.Errorf("missing exp in payload"),
+		}
 	}
 
 	claims := jwt.MapClaims{}
@@ -99,17 +121,29 @@ func (s *JWTService) GenerateJwtToken(signingKey SigningKey, payload map[string]
 	// validate signature type
 	privateKeyAny, err := ParsePrivateKeyFromPEM(signingKey.PrivateKey)
 	if err != nil {
-		return "", err
+		return "", &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        err,
+		}
 	}
 
 	t, err := token.SignedString(privateKeyAny)
 	if err != nil {
-		return "", err
+		return "", &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        err,
+		}
 	}
 
 	parts := strings.Split(t, ".")
 	if len(parts) != 3 {
-		return "", fmt.Errorf("invalid token format")
+		return "", &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        fmt.Errorf("invalid token format"),
+		}
 	}
 
 	return t, nil
@@ -122,7 +156,11 @@ func (s *JWTService) GetKey(ctx context.Context, alg string) (SigningKey, error)
 func (s *JWTService) GenerateJwtTokenWithAlg(ctx context.Context, payload map[string]any, alg string) (string, error) {
 	signingKey, err := s.repo.FindByAlgorithm(ctx, alg)
 	if err != nil {
-		return "", err
+		return "", &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        err,
+		}
 	}
 	// validate header
 	var algorithm jwt.SigningMethod
@@ -132,7 +170,11 @@ func (s *JWTService) GenerateJwtTokenWithAlg(ctx context.Context, payload map[st
 	case "ES256":
 		algorithm = jwt.SigningMethodES256
 	default:
-		return "", fmt.Errorf("unsupported algorithm: %s", signingKey.Algorithm)
+		return "", &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        fmt.Errorf("unsupported algorithm: %s", signingKey.Algorithm),
+		}
 	}
 
 	if payload["iss"] == nil {
@@ -145,7 +187,11 @@ func (s *JWTService) GenerateJwtTokenWithAlg(ctx context.Context, payload map[st
 		payload["iat"] = time.Now().Unix()
 	}
 	if payload["exp"] == nil {
-		return "", fmt.Errorf("missing exp in payload")
+		return "", &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        fmt.Errorf("missing exp in payload"),
+		}
 	}
 
 	claims := jwt.MapClaims{}
@@ -159,12 +205,20 @@ func (s *JWTService) GenerateJwtTokenWithAlg(ctx context.Context, payload map[st
 	// validate signature type
 	privateKeyAny, err := ParsePrivateKeyFromPEM(signingKey.PrivateKey)
 	if err != nil {
-		return "", err
+		return "", &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        err,
+		}
 	}
 
 	t, err := token.SignedString(privateKeyAny)
 	if err != nil {
-		return "", err
+		return "", &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        err,
+		}
 	}
 
 	parts := strings.Split(t, ".")
@@ -220,39 +274,67 @@ func (s *JWTService) ParseAndValidateJwtToken(tokenString string, publicKey any)
 		return publicKey, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        err,
+		}
 	}
 	if !token.Valid {
-		return nil, fmt.Errorf("invalid token")
+		return nil, &kp.Error{
+			Message:    "invalid_grant",
+			StatusCode: http.StatusUnauthorized,
+			Err:        fmt.Errorf("invalid token"),
+		}
 	}
 	return token, nil
 }
 func (s *JWTService) DecodeJwtToken(tokenString string) (header, payload map[string]any, err error) {
 	parts := strings.Split(tokenString, ".")
 	if len(parts) != 3 {
-		return nil, nil, fmt.Errorf("invalid token format")
+		return nil, nil, &kp.Error{
+			Message:    "invalid_grant",
+			StatusCode: http.StatusUnauthorized,
+			Err:        fmt.Errorf("invalid token"),
+		}
 	}
 
 	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, &kp.Error{
+			Message:    "invalid_grant",
+			StatusCode: http.StatusUnauthorized,
+			Err:        fmt.Errorf("invalid token"),
+		}
 	}
 
 	err = json.Unmarshal(headerBytes, &header)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        err,
+		}
 	}
 
 	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        err,
+		}
 	}
 
 	payload = make(map[string]any)
 
 	err = json.Unmarshal(payloadBytes, &payload)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, &kp.Error{
+			Message:    "server_error",
+			StatusCode: http.StatusInternalServerError,
+			Err:        err,
+		}
 	}
 
 	return header, payload, nil
