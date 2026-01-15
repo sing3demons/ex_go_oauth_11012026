@@ -87,7 +87,11 @@ func main() {
 		}
 		token, err := jwksService.GenerateJwtTokenWithAlg(ctx.Context(), payload, "RS256")
 		if err != nil {
-			ctx.JSONError(http.StatusInternalServerError, "failed to generate token", err)
+			ctx.JSONError(&kp.Error{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "failed to generate token",
+				Err:        err,
+			})
 			return
 		}
 

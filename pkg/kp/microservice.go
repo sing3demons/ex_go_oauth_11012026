@@ -42,7 +42,8 @@ type IMicroservice interface {
 
 	Use(middleware Middleware)
 	// multiple methods (GET, POST, PUT, DELETE, PATCH)
-
+	// Any(path string, handler MyHandler, middlewares ...Middleware)
+	Match(methods, path string, handler MyHandler, middlewares ...Middleware)
 }
 
 func NewMicroservice(cfg *config.AppConfig, parentLogger logger.ILogger) IMicroservice {
@@ -135,28 +136,37 @@ func (m *Microservice) preHandle(handler MyHandler, middlewares ...Middleware) h
 	return final
 }
 
+func (m *Microservice) add(method, path string, handler MyHandler, middlewares ...Middleware) {
+	m.mux.HandleFunc(fmt.Sprintf("%s %s", method, path), m.preHandle(handler, middlewares...))
+}
+
 func (m *Microservice) GET(path string, handler MyHandler, middlewares ...Middleware) {
-	m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodGet, path), m.preHandle(handler, middlewares...))
+	m.add(http.MethodGet, path, handler, middlewares...)
 }
 
 func (m *Microservice) POST(path string, handler MyHandler, middlewares ...Middleware) {
-	m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodPost, path), m.preHandle(handler, middlewares...))
+	// m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodPost, path), m.preHandle(handler, middlewares...))
+	m.add(http.MethodPost, path, handler, middlewares...)
 }
 
 func (m *Microservice) PUT(path string, handler MyHandler, middlewares ...Middleware) {
-	m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodPut, path), m.preHandle(handler, middlewares...))
+	// m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodPut, path), m.preHandle(handler, middlewares...))
+	m.add(http.MethodPut, path, handler, middlewares...)
 }
 
 func (m *Microservice) DELETE(path string, handler MyHandler, middlewares ...Middleware) {
-	m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodDelete, path), m.preHandle(handler, middlewares...))
+	// m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodDelete, path), m.preHandle(handler, middlewares...))
+	m.add(http.MethodDelete, path, handler, middlewares...)
 }
 
 func (m *Microservice) PATCH(path string, handler MyHandler, middlewares ...Middleware) {
-	m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodPatch, path), m.preHandle(handler, middlewares...))
+	// m.mux.HandleFunc(fmt.Sprintf("%s %s", http.MethodPatch, path), m.preHandle(handler, middlewares...))
+	m.add(http.MethodPatch, path, handler, middlewares...)
 }
 
-func (m *Microservice) Methods(methods, path string, handler MyHandler, middlewares ...Middleware) {
+func (m *Microservice) Match(methods, path string, handler MyHandler, middlewares ...Middleware) {
 	for _, method := range []string{methods} {
-		m.mux.HandleFunc(fmt.Sprintf("%s %s", strings.ToUpper(method), path), m.preHandle(handler, middlewares...))
+		// m.mux.HandleFunc(fmt.Sprintf("%s %s", strings.ToUpper(method), path), m.preHandle(handler, middlewares...))
+		m.add(strings.ToUpper(method), path, handler, middlewares...)
 	}
 }
