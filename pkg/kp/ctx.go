@@ -345,6 +345,16 @@ func (c *Ctx) BindQuery(v any) error {
 	return nil
 }
 
+type ParamInbound struct {
+	Method  string            `json:"method,omitempty"`
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Query   map[string]string `json:"query,omitempty"`
+	Body    map[string]any    `json:"body,omitempty"`
+	Params  map[string]string `json:"params,omitempty"`
+	Remote  string            `json:"remote,omitempty"`
+}
+
 func (c *Ctx) L(userCase string, masking ...logger.MaskingRule) logger.ILogger {
 	c.Log.SetUseCase(userCase)
 	c.SessionID()
@@ -355,15 +365,17 @@ func (c *Ctx) L(userCase string, masking ...logger.MaskingRule) logger.ILogger {
 	params := c.ParamsMap()
 	queries := c.QueryString()
 
-	c.Log.Info(logAction.INBOUND(fmt.Sprintf("client %s %s server", c.Req.Method, c.Req.URL.String())), map[string]any{
-		"method":  c.Req.Method,
-		"url":     c.Req.URL.String(),
-		"headers": headers,
-		"query":   queries,
-		"body":    body,
-		"params":  params,
-		"remote":  c.Req.RemoteAddr,
-	}, masking...)
+	paramInbound := ParamInbound{
+		Method:  c.Req.Method,
+		URL:     c.Req.URL.String(),
+		Headers: headers,
+		Query:   queries,
+		Body:    body,
+		Params:  params,
+		Remote:  c.Req.RemoteAddr,
+	}
+
+	c.Log.Info(logAction.INBOUND(fmt.Sprintf("client %s %s server", c.Req.Method, c.Req.URL.String())), paramInbound, masking...)
 	return c.Log
 }
 func (c *Ctx) Headers() map[string]string {
