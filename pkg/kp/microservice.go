@@ -26,6 +26,7 @@ type Microservice struct {
 	mux          *http.ServeMux
 	middlewares  []Middleware
 	parentLogger logger.ILogger
+	kafkaClient  *KafkaClient
 }
 type IMicroservice interface {
 	Start()
@@ -44,6 +45,9 @@ type IMicroservice interface {
 	// multiple methods (GET, POST, PUT, DELETE, PATCH)
 	// Any(path string, handler MyHandler, middlewares ...Middleware)
 	Match(methods, path string, handler MyHandler, middlewares ...Middleware)
+
+	// kafka
+	Consumer(topic string, handler MyHandler)
 }
 
 func NewMicroservice(cfg *config.AppConfig, parentLogger logger.ILogger) IMicroservice {
@@ -51,7 +55,29 @@ func NewMicroservice(cfg *config.AppConfig, parentLogger logger.ILogger) IMicros
 		config:       cfg,
 		mux:          http.NewServeMux(),
 		parentLogger: parentLogger,
+		// kafkaClient: newKafkaClient(kafka.New(&kafka.Config{
+		// 	Brokers:      []string{"localhost:29092"},
+		// 	BatchSize:    100,
+		// 	BatchBytes:   1048576,
+		// 	BatchTimeout: 10,
+		// })),
 	}
+}
+
+func (m *Microservice) Consumer(topic string, handler MyHandler) {
+	fmt.Printf("registering kafka consumer for topic %s\n", topic)
+	if m.kafkaClient == nil {
+		log.Printf("kafka client not initialized")
+		return
+	}
+
+	if _, exists := m.kafkaClient.subscriptions[topic]; exists {
+		log.Printf("subscription for topic %s already exists", topic)
+		return
+	}
+
+	m.kafkaClient.subscriptions[topic] = handler
+	fmt.Printf("starting kafka consumer for topic %s\n", topic)
 }
 
 // func (m *Microservice) preHandle(final http.HandlerFunc, middlewares ...Middleware) http.HandlerFunc {

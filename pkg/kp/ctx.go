@@ -359,19 +359,16 @@ func (c *Ctx) L(userCase string, masking ...logger.MaskingRule) logger.ILogger {
 	c.Log.SetUseCase(userCase)
 	c.SessionID()
 	body := make(map[string]any)
-	c.Bind(&body)
 
-	headers := c.Headers()
-	params := c.ParamsMap()
-	queries := c.QueryString()
+	c.Bind(&body)
 
 	paramInbound := ParamInbound{
 		Method:  c.Req.Method,
 		URL:     c.Req.URL.String(),
-		Headers: headers,
-		Query:   queries,
+		Headers: c.Headers(),
+		Query:   c.QueryString(),
 		Body:    body,
-		Params:  params,
+		Params:  c.ParamsMap(),
 		Remote:  c.Req.RemoteAddr,
 	}
 
